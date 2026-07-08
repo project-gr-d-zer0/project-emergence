@@ -4,7 +4,7 @@
 #include "Misc/AutomationTest.h"
 #if WITH_AUTOMATION_TESTS
 BEGIN_DEFINE_SPEC(FEmergeSmokeSpec, "Emergence.Smoke.Boots",
-    EAutomationTestFlags::ProductFilter | EAutomationTestFlags::ApplicationContextMask)
+    EAutomationTestFlags::ProductFilter | EAutomationTestFlags::EditorContext)
 END_DEFINE_SPEC(FEmergeSmokeSpec)
 void FEmergeSmokeSpec::Define()
 {
