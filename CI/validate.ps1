@@ -1,9 +1,9 @@
-# Emergence acceptance oracle (runs on the l3e7 Windows UE host). Emits ONE JSON line for emerge_validate.
+# Emergence acceptance oracle (l3e7 UE host). Build + test + CAPTURE ERRORS for the autonomous builder.
+# Emits ONE JSON line: {available,compile,tests_pass,tests_total,score,build_errors,failures}
 $ErrorActionPreference = 'SilentlyContinue'
 $repo = Split-Path -Parent $PSScriptRoot
 Set-Location $repo
-# HARD-MIRROR rick's master (build-drive is a slave checkout; merge-pull can silently fail on divergence
-# and build STALE code -> a false-green gate). Always build exactly what is on origin/master.
+# HARD-MIRROR origin/master (build-drive is a slave checkout; merge-pull can silently build stale code).
 git fetch --quiet origin 2>$null
 git reset --hard origin/master 2>$null
 git clean -fd 2>$null
@@ -15,18 +15,31 @@ if (-not $ue) {
   }
 }
 $cmd = if ($ue) { Join-Path $ue "Engine\Binaries\Win64\UnrealEditor-Cmd.exe" } else { $null }
-if (-not $cmd -or -not (Test-Path $cmd)) { '{"available":false,"note":"UE5.8 not installed on l3e7 (host not provisioned)"}'; exit 0 }
+if (-not $cmd -or -not (Test-Path $cmd)) { '{"available":false,"note":"UE5.8 not installed on l3e7"}'; exit 0 }
 $uproj = Join-Path $repo "ProjectEmergence.uproject"
-& (Join-Path $ue "Engine\Build\BatchFiles\Build.bat") ProjectEmergenceEditor Win64 Development -Project="$uproj" -WaitMutex 2>&1 | Out-Null
+$blog = Join-Path $repo "Saved\build_last.log"
+& (Join-Path $ue "Engine\Build\BatchFiles\Build.bat") ProjectEmergenceEditor Win64 Development -Project="$uproj" -WaitMutex 2>&1 | Out-File -FilePath $blog -Encoding UTF8
 $compile = ($LASTEXITCODE -eq 0)
-$pass = 0; $total = 0
-if ($compile) {
+$pass = 0; $total = 0; $errtext = ""; $fails = @()
+if (-not $compile) {
+  $errlines = Select-String -Path $blog -Pattern "error C\d|error LNK|error MSB|: error|error :" | ForEach-Object { $_.Line.Trim() } | Select-Object -First 30
+  $errtext = ($errlines -join "`n")
+  if ($errtext.Length -gt 3500) { $errtext = $errtext.Substring(0, 3500) }
+} else {
   $rd = Join-Path $repo "Saved\TestReports"
   Remove-Item (Join-Path $rd "index.json") -Force -EA SilentlyContinue
   $tests = if ($args[0]) { $args[0] } else { "Emergence." }
   & $cmd "$uproj" -execcmds="Automation RunTests $tests; Quit" -unattended -nopause -nosplash -nullrhi -stdout -ReportOutputPath="$rd" 2>&1 | Out-Null
   $idx = Join-Path $rd "index.json"
-  if (Test-Path $idx) { $r = Get-Content $idx -Raw | ConvertFrom-Json; $total = @($r.tests).Count; $pass = @($r.tests | Where-Object { $_.state -eq "Success" }).Count }
+  if (Test-Path $idx) {
+    $r = Get-Content $idx -Raw | ConvertFrom-Json
+    $total = @($r.tests).Count
+    $pass = @($r.tests | Where-Object { $_.state -eq "Success" }).Count
+    foreach ($t in @($r.tests | Where-Object { $_.state -ne "Success" })) {
+      $msg = (@($t.entries | Where-Object { $_.event.type -eq "Error" } | ForEach-Object { $_.event.message })) -join "; "
+      $fails += ("{0} :: {1}" -f $t.fullTestPath, $msg)
+    }
+  }
 }
-$score = if (-not $compile) { 0.0 } elseif ($total -gt 0) { [math]::Round($pass/$total,3) } else { 0.5 }
-(@{ available=$true; compile=$compile; tests_pass=$pass; tests_total=$total; score=$score } | ConvertTo-Json -Compress)
+$score = if (-not $compile) { 0.0 } elseif ($total -gt 0) { [math]::Round($pass / $total, 3) } else { 0.5 }
+(@{ available = $true; compile = $compile; tests_pass = $pass; tests_total = $total; score = $score; build_errors = $errtext; failures = $fails } | ConvertTo-Json -Compress)
