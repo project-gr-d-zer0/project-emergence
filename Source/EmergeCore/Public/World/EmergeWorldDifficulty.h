@@ -18,4 +18,8 @@ public:
 	// Tier 0 = basic raiders (bolt-action/pistol); tier >= 1 = factions (plate armor, automatics).
 	UFUNCTION(BlueprintCallable, Category = "World|Difficulty")
 	static int32 EnemyGearTierAtDepth(int32 Depth);
+
+	// Seconds between horde spawns; cadence tightens with depth, floored at 2s.
+	UFUNCTION(BlueprintCallable, Category = "World|Difficulty")
+	static float HordeSpawnIntervalSeconds(int32 Depth);
 };

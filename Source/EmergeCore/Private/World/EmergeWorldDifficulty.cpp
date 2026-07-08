@@ -10,3 +10,8 @@ int32 UEmergeWorldDifficulty::EnemyGearTierAtDepth(int32 Depth)
 {
 	return FMath::Clamp(Depth, 0, 4);
 }
+
+float UEmergeWorldDifficulty::HordeSpawnIntervalSeconds(int32 Depth)
+{
+	return FMath::Max(2.0f, 20.0f - FMath::Max(0, Depth) * 2.0f);
+}
