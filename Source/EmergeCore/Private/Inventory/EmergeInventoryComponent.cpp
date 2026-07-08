@@ -84,3 +84,26 @@ int32 UEmergeInventoryComponent::RemoveItem(UEmergeItemDefinition* Item, int32 Q
 	}
 	return 0;
 }
+
+float UEmergeInventoryComponent::GetLoadRatio() const
+{
+	if (MaxWeightKg <= 0.0f)
+	{
+		return 0.0f;
+	}
+	return GetCurrentWeightKg() / MaxWeightKg;
+}
+
+int32 UEmergeInventoryComponent::GetLoadTier() const
+{
+	const float Ratio = GetLoadRatio();
+	if (Ratio > HeavyMinFraction)
+	{
+		return 2;
+	}
+	if (Ratio > LightMaxFraction)
+	{
+		return 1;
+	}
+	return 0;
+}

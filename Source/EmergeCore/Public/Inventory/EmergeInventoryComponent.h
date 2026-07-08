@@ -29,6 +29,16 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Inventory", meta = (ClampMin = "0.0"))
 	float MaxWeightKg = 30.0f;
 
+	// Encumbrance band thresholds, expressed as a fraction of MaxWeightKg.
+	// ratio <= LightMaxFraction            -> tier 0 (Light)
+	// LightMaxFraction < ratio <= HeavyMinFraction -> tier 1 (Normal)
+	// ratio > HeavyMinFraction              -> tier 2 (Heavy)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Encumbrance", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LightMaxFraction = 0.50f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Encumbrance", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float HeavyMinFraction = 0.75f;
+
 	// Adds the full quantity, or nothing if it would exceed MaxWeightKg. Returns true on success.
 	UFUNCTION(BlueprintCallable, Category = "Inventory")
 	bool TryAddItem(UEmergeItemDefinition* Item, int32 Quantity = 1);
@@ -42,6 +52,14 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Inventory")
 	int32 GetQuantity(const UEmergeItemDefinition* Item) const;
+
+	// Ratio of current weight to MaxWeightKg (0 when MaxWeightKg <= 0).
+	UFUNCTION(BlueprintPure, Category = "Encumbrance")
+	float GetLoadRatio() const;
+
+	// Encumbrance tier: 0 = Light (ratio <= LightMaxFraction), 1 = Normal, 2 = Heavy (ratio > HeavyMinFraction).
+	UFUNCTION(BlueprintPure, Category = "Encumbrance")
+	int32 GetLoadTier() const;
 
 private:
 	UPROPERTY()
