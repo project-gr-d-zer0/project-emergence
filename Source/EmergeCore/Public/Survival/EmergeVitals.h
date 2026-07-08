@@ -21,4 +21,9 @@ public:
 	// Health damage applied while starving; zero otherwise.
 	UFUNCTION(BlueprintCallable, Category = "Survival|Vitals")
 	static float StarvationDamage(float Hydration, float DeltaSeconds, float DamagePerSec);
+
+	// Fall damage from vertical impact speed (cm/s). Safe below 800 cm/s; scales linearly
+	// above that and caps at a lethal 100.
+	UFUNCTION(BlueprintCallable, Category = "Survival|Vitals")
+	static float FallDamage(float ImpactSpeed);
 };
