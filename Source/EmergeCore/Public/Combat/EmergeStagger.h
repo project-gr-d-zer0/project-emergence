@@ -49,4 +49,9 @@ public:
 	// Locomotion speed multiplier for a given stagger state.
 	UFUNCTION(BlueprintCallable, Category = "Combat|Stagger")
 	static float LocomotionSpeedMultiplier(EEmergeStaggerState State);
+
+	// Stagger meter naturally recovers toward 0 when not being hit:
+	// max(0, Meter - max(0,RecoveryPerSec) * max(0,DeltaSeconds)).
+	UFUNCTION(BlueprintCallable, Category = "Combat|Stagger")
+	static float MeterAfterRecovery(float Meter, float RecoveryPerSec, float DeltaSeconds);
 };

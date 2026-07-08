@@ -55,3 +55,9 @@ float UEmergeStagger::LocomotionSpeedMultiplier(EEmergeStaggerState State)
 		return 0.0f;
 	}
 }
+
+float UEmergeStagger::MeterAfterRecovery(float Meter, float RecoveryPerSec, float DeltaSeconds)
+{
+	const float Rec = FMath::Max(0.0f, RecoveryPerSec) * FMath::Max(0.0f, DeltaSeconds);
+	return FMath::Max(0.0f, Meter - Rec);
+}
