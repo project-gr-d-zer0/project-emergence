@@ -3,6 +3,8 @@
 #include "Combat/EmergeStaggerComponent.h"
 #include "Survival/EmergeStaminaComponent.h"
 #include "Combat/EmergeDamageComponent.h"
+#include "Survival/EmergeStatusEffectComponent.h"
+#include "Combat/EmergeEquipmentComponent.h"
 
 AEmergeCharacter::AEmergeCharacter()
 {
@@ -11,4 +13,6 @@ AEmergeCharacter::AEmergeCharacter()
 	Stagger = CreateDefaultSubobject<UEmergeStaggerComponent>(TEXT("Stagger"));
 	Stamina = CreateDefaultSubobject<UEmergeStaminaComponent>(TEXT("Stamina"));
 	Damage = CreateDefaultSubobject<UEmergeDamageComponent>(TEXT("Damage"));
+	StatusEffects = CreateDefaultSubobject<UEmergeStatusEffectComponent>(TEXT("StatusEffects"));
+	Equipment = CreateDefaultSubobject<UEmergeEquipmentComponent>(TEXT("Equipment"));
 }
