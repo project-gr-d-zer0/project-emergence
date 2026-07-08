@@ -4,7 +4,12 @@ $repo = Split-Path -Parent $PSScriptRoot
 Set-Location $repo
 git pull --quiet 2>$null
 $ue = $env:UE_ROOT
-if (-not $ue) { $ue = (Get-ChildItem "C:\Program Files\Epic Games" -Directory -Filter "UE_5.*" -EA SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1).FullName }
+if (-not $ue) {
+  foreach ($b in @("C:\Program Files\Epic Games","E:\EpicGamesLibrary","D:\EpicGamesLibrary","C:\EpicGamesLibrary","E:\Epic Games","D:\Epic Games")) {
+    $c = Get-ChildItem $b -Directory -Filter "UE_5.*" -EA SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+    if ($c) { $ue = $c.FullName; break }
+  }
+}
 $cmd = if ($ue) { Join-Path $ue "Engine\Binaries\Win64\UnrealEditor-Cmd.exe" } else { $null }
 if (-not $cmd -or -not (Test-Path $cmd)) { '{"available":false,"note":"UE5.8 not installed on l3e7 (host not provisioned)"}'; exit 0 }
 $uproj = Join-Path $repo "ProjectEmergence.uproject"
