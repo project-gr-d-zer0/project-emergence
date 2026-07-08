@@ -2,7 +2,11 @@
 $ErrorActionPreference = 'SilentlyContinue'
 $repo = Split-Path -Parent $PSScriptRoot
 Set-Location $repo
-git pull --quiet 2>$null
+# HARD-MIRROR rick's master (build-drive is a slave checkout; merge-pull can silently fail on divergence
+# and build STALE code -> a false-green gate). Always build exactly what is on origin/master.
+git fetch --quiet origin 2>$null
+git reset --hard origin/master 2>$null
+git clean -fd 2>$null
 $ue = $env:UE_ROOT
 if (-not $ue) {
   foreach ($b in @("C:\Program Files\Epic Games","E:\EpicGamesLibrary","D:\EpicGamesLibrary","C:\EpicGamesLibrary","E:\Epic Games","D:\Epic Games")) {
@@ -18,6 +22,7 @@ $compile = ($LASTEXITCODE -eq 0)
 $pass = 0; $total = 0
 if ($compile) {
   $rd = Join-Path $repo "Saved\TestReports"
+  Remove-Item (Join-Path $rd "index.json") -Force -EA SilentlyContinue
   $tests = if ($args[0]) { $args[0] } else { "Emergence." }
   & $cmd "$uproj" -execcmds="Automation RunTests $tests; Quit" -unattended -nopause -nosplash -nullrhi -stdout -ReportOutputPath="$rd" 2>&1 | Out-Null
   $idx = Join-Path $rd "index.json"
