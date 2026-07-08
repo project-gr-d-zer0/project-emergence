@@ -1,0 +1,12 @@
+# UE generated / build artifacts (never committed)
+Binaries/
+Build/
+DerivedDataCache/
+Intermediate/
+Saved/
+.vs/
+.vscode/
+*.VC.db
+*.opensdf
+*.sdf
+*.sln
