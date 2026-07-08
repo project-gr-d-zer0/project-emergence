@@ -1,3 +1,4 @@
+using System.IO;
 using UnrealBuildTool;
 public class EmergeCore : ModuleRules
 {
@@ -7,5 +8,13 @@ public class EmergeCore : ModuleRules
         // Public: exposed to dependent modules. Private: cpp-only (kept minimal to reduce compile time).
         PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine" });
         PrivateDependencyModuleNames.AddRange(new string[] { });
+
+        // Expose per-area public subdirs so headers can be included by leaf name
+        // (e.g. #include "EmergeItemDefinition.h") as the acceptance tests do.
+        PublicIncludePaths.AddRange(new string[]
+        {
+            Path.Combine(ModuleDirectory, "Public", "Items"),
+            Path.Combine(ModuleDirectory, "Public", "Inventory"),
+        });
     }
 }

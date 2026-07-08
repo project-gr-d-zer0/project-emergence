@@ -29,4 +29,8 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item", meta = (ClampMin = "1"))
 	int32 GridHeight = 1;
+
+	// Maximum durability for this item type. 0 means the item has no durability system applied.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item", meta = (ClampMin = "0.0"))
+	float MaxDurability = 0.0f;
 };
