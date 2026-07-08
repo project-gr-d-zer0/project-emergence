@@ -18,4 +18,10 @@ public:
 	// If FalloffEndM <= FalloffStartM, returns BaseDamage (degenerate range guard).
 	UFUNCTION(BlueprintCallable, Category = "Ballistics")
 	static float ComputeDamage(float BaseDamage, float DistanceM, float FalloffStartM, float FalloffEndM);
+
+	// Applies armor mitigation to an already-computed damage value.
+	// If the round failed to penetrate, only a 15% bleed-through fraction gets through.
+	// If it penetrated, damage is still reduced by residual armor, up to a 60% cap.
+	UFUNCTION(BlueprintCallable, Category = "Ballistics")
+	static float MitigatedDamage(float RawDamage, float ArmorValue, bool bPenetrated);
 };
