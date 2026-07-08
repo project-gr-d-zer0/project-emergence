@@ -10,7 +10,7 @@ public class ProjectEmergence : ModuleRules
         // GAS + tags for the ability/damage system (spec 11.2). More engine modules (MassEntity,
         // StateTree, Iris, Chaos, PoseSearch) get added here as their phase-0 systems land.
         PrivateDependencyModuleNames.AddRange(new string[] {
-            "GameplayAbilities", "GameplayTags", "GameplayTasks"
+            
         });
     }
 }
