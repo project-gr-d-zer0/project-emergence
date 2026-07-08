@@ -6,6 +6,7 @@ public class ProjectEmergenceServerTarget : TargetRules
     {
         Type = TargetType.Server;
         DefaultBuildSettings = BuildSettingsVersion.V5;
+        bOverrideBuildEnvironment = true;
         IncludeOrderVersion = EngineIncludeOrderVersion.Latest;
         ExtraModuleNames.AddRange(new string[] { "ProjectEmergence", "EmergeCore" });
     }
