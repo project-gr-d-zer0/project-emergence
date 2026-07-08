@@ -1,0 +1,21 @@
+#pragma once
+#include "CoreMinimal.h"
+#include "Kismet/BlueprintFunctionLibrary.h"
+#include "EmergeBallistics.generated.h"
+
+// Core ballistics formulas: penetration vs armor class, and range-based damage falloff.
+// Pure/deterministic math library (spec: core ballistics differentiator).
+UCLASS()
+class EMERGECORE_API UEmergeBallistics : public UBlueprintFunctionLibrary
+{
+	GENERATED_BODY()
+public:
+	// Armor stops the round when PenetrationValue < ArmorClass * 10.
+	UFUNCTION(BlueprintCallable, Category = "Ballistics")
+	static bool Penetrates(float PenetrationValue, int32 ArmorClass);
+
+	// Linear damage falloff: full damage up to FalloffStartM, decaying to 50% at/after FalloffEndM.
+	// If FalloffEndM <= FalloffStartM, returns BaseDamage (degenerate range guard).
+	UFUNCTION(BlueprintCallable, Category = "Ballistics")
+	static float ComputeDamage(float BaseDamage, float DistanceM, float FalloffStartM, float FalloffEndM);
+};
