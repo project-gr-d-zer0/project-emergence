@@ -6,13 +6,11 @@ END_DEFINE_SPEC(FEmergeGuardSpec1)
 
 void FEmergeGuardSpec1::Define()
 {
-    Describe("The Emergence guardian checks", [this]()
+    Describe("The Emergence guardian functionality", [this]()
     {
-        It("verifies a simple mathematical fact using UE5.8 FMath functions", [this]()
+        It("verifies a simple deterministic fact using UE functions", [this]()
         {
-            const float Value = 50.0f;
-            const float ClampedValue = FMath::Clamp(Value, 0.0f, 100.0f);
-            TestTrue(TEXT("FMath::Clamp works as expected"), ClampedValue == 50.0f);
+            TestTrue(TEXT("FMath::Clamp(5, 0, 10) == 5"), FMath::Clamp(5, 0, 10) == 5);
         });
     });
 }
