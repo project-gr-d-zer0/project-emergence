@@ -20,4 +20,16 @@ public:
 	// Recoil at a given shot index within a burst, climbing 10% per shot.
 	UFUNCTION(BlueprintCallable, Category = "Combat|Weapon")
 	static float RecoilAtShot(float BaseRecoil, int32 ShotIndex);
+
+	// Accumulated heat after firing Shots additional rounds, each adding HeatPerShot.
+	UFUNCTION(BlueprintCallable, Category = "Combat|Weapon")
+	static float HeatAfterShots(float Heat, int32 Shots, float HeatPerShot);
+
+	// Heat after cooling for DeltaSeconds at CoolPerSec, floored at 0.
+	UFUNCTION(BlueprintCallable, Category = "Combat|Weapon")
+	static float HeatAfterCooling(float Heat, float CoolPerSec, float DeltaSeconds);
+
+	// Malfunction chance in [0,1]: zero above 93% durability while cool, rising with wear and heat.
+	UFUNCTION(BlueprintCallable, Category = "Combat|Weapon")
+	static float MalfunctionChance(float DurabilityPct, float Heat);
 };
