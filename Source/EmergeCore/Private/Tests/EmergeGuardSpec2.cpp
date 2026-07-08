@@ -6,11 +6,12 @@ END_DEFINE_SPEC(FEmergeGuardSpec2)
 
 void FEmergeGuardSpec2::Define()
 {
-    Describe("The Emergence guardian", [this]()
+    Describe("The Emergence guardian checks", [this]()
     {
-        It("verifies a simple deterministic fact using UE functions", [this]()
+        It("verifies a simple math operation using FMath::Max", [this]()
         {
-            TestTrue(TEXT("FMath::Clamp(5, 1, 10) == 5"), FMath::Clamp(5, 1, 10) == 5);
+            const int32 MaxValue = FMath::Max(10, 5);
+            TestEqual(TEXT("FMath::Max returns the correct value"), MaxValue, 10);
         });
     });
 }
