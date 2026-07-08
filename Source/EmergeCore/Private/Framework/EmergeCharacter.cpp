@@ -5,13 +5,12 @@
 #include "Combat/EmergeDamageComponent.h"
 #include "Survival/EmergeStatusEffectComponent.h"
 #include "Combat/EmergeEquipmentComponent.h"
-#include "GameFramework/CharacterMovementComponent.h"
 #include "Components/InputComponent.h"
 
-AEmergeCharacter::AEmergeCharacter()
+AEmergeCharacter::AEmergeCharacter(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
 {
 	PrimaryActorTick.bCanEverTick = true;
-	bUseControllerRotationYaw = true;
 
 	Vitals = CreateDefaultSubobject<UEmergeVitalsComponent>(TEXT("Vitals"));
 	Stagger = CreateDefaultSubobject<UEmergeStaggerComponent>(TEXT("Stagger"));
@@ -19,16 +18,6 @@ AEmergeCharacter::AEmergeCharacter()
 	Damage = CreateDefaultSubobject<UEmergeDamageComponent>(TEXT("Damage"));
 	StatusEffects = CreateDefaultSubobject<UEmergeStatusEffectComponent>(TEXT("StatusEffects"));
 	Equipment = CreateDefaultSubobject<UEmergeEquipmentComponent>(TEXT("Equipment"));
-}
-
-void AEmergeCharacter::Tick(float DeltaSeconds)
-{
-	Super::Tick(DeltaSeconds);
-	// The stumble differentiator, live: stagger state directly gates locomotion speed.
-	if (Stagger && GetCharacterMovement())
-	{
-		GetCharacterMovement()->MaxWalkSpeed = BaseWalkSpeed * Stagger->SpeedMultiplier();
-	}
 }
 
 void AEmergeCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -46,7 +35,9 @@ void AEmergeCharacter::MoveForward(float Value)
 {
 	if (Value != 0.0f)
 	{
-		AddMovementInput(GetActorForwardVector(), Value);
+		// ALS rotates the character itself; move relative to the control rotation's yaw.
+		const FRotator YawRotation(0.0f, GetControlRotation().Yaw, 0.0f);
+		AddMovementInput(FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X), Value);
 	}
 }
 
@@ -54,7 +45,8 @@ void AEmergeCharacter::MoveRight(float Value)
 {
 	if (Value != 0.0f)
 	{
-		AddMovementInput(GetActorRightVector(), Value);
+		const FRotator YawRotation(0.0f, GetControlRotation().Yaw, 0.0f);
+		AddMovementInput(FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y), Value);
 	}
 }
 

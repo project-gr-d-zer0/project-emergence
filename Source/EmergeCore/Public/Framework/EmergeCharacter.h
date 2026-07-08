@@ -1,6 +1,6 @@
 #pragma once
 #include "CoreMinimal.h"
-#include "GameFramework/Character.h"
+#include "AlsCharacter.h"
 #include "EmergeCharacter.generated.h"
 
 class UEmergeVitalsComponent;
@@ -10,16 +10,17 @@ class UEmergeDamageComponent;
 class UEmergeStatusEffectComponent;
 class UEmergeEquipmentComponent;
 
-// Base survivor pawn. Ships with the full core survival runtime suite attached (vitals, stagger,
-// stamina, damage resolver, status effects, equipment) so the tested gameplay math is live on the
-// pawn out of the box. Basic WASD+mouse+jump input is bound in C++ (axis mappings in
-// Config/DefaultInput.ini); locomotion speed is scaled every frame by the stagger state.
+// Base survivor pawn on the ALS-Refactored locomotion spine (replicated gaits/stances/mantling/ragdoll).
+// Ships with the full core survival runtime suite attached (vitals, stagger, stamina, damage resolver,
+// status effects, equipment) so the tested gameplay math is live on the pawn out of the box.
+// Basic WASD+mouse+jump input is bound in C++ (axis mappings in Config/DefaultInput.ini).
+// TODO(next): map stagger states onto ALS - Knockdown -> StartRagdolling(), Stumble/Stagger -> forced walk gait.
 UCLASS()
-class EMERGECORE_API AEmergeCharacter : public ACharacter
+class EMERGECORE_API AEmergeCharacter : public AAlsCharacter
 {
 	GENERATED_BODY()
 public:
-	AEmergeCharacter();
+	explicit AEmergeCharacter(const FObjectInitializer& ObjectInitializer);
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Emerge")
 	TObjectPtr<UEmergeVitalsComponent> Vitals;
@@ -39,11 +40,6 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Emerge")
 	TObjectPtr<UEmergeEquipmentComponent> Equipment;
 
-	// Walk speed at stagger multiplier 1.0; the stagger state scales it down each frame.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Emerge|Movement")
-	float BaseWalkSpeed = 500.0f;
-
-	virtual void Tick(float DeltaSeconds) override;
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 
 protected:
