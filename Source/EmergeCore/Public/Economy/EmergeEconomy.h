@@ -15,4 +15,9 @@ public:
 	// return round(BaseValue * C * R)
 	UFUNCTION(BlueprintCallable, Category = "Economy")
 	static int32 ItemValue(int32 BaseValue, float ConditionPct, int32 RarityTier);
+
+	// Cost to repair condition from FromConditionPct up to ToConditionPct: half the value of the
+	// condition restored. Returns 0 if there is no upward restoration (ToConditionPct <= FromConditionPct).
+	UFUNCTION(BlueprintCallable, Category = "Economy")
+	static int32 RepairCost(int32 BaseValue, float FromConditionPct, float ToConditionPct);
 };
