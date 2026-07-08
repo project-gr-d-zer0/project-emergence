@@ -29,8 +29,4 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item", meta = (ClampMin = "1"))
 	int32 GridHeight = 1;
-
-	// New Property for Max Durability
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item", meta = (ClampMin = "0.0"))
-	float MaxDurability = 1.0f;
 };

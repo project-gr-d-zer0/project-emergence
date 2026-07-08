@@ -42,13 +42,6 @@ bool UEmergeInventoryComponent::TryAddItem(UEmergeItemDefinition* Item, int32 Qu
 	{
 		return false;
 	}
-
-	int32 CurrentQuantity = GetQuantity(Item);
-	if (CurrentQuantity + Quantity > Item->MaxStack)
-	{
-		return false;
-	}
-
 	for (FEmergeInventoryEntry& E : Entries)
 	{
 		if (E.Item == Item)
