@@ -1,11 +1,24 @@
 {
-  "FileVersion": 3,
-  "EngineAssociation": "5.8",
-  "Category": "Game",
-  "Description": "Grounded survival-extraction game. Spec: ../Docs/PROJECT_EMERGENCE_SPEC.md",
-  "Modules": [
-    { "Name": "ProjectEmergence", "Type": "Runtime", "LoadingPhase": "Default" },
-    { "Name": "EmergeCore", "Type": "Runtime", "LoadingPhase": "Default" }
-  ],
-  "Plugins": []
+ "FileVersion": 3,
+ "EngineAssociation": "5.8",
+ "Category": "Game",
+ "Description": "Grounded survival-extraction game. Spec: ../Docs/PROJECT_EMERGENCE_SPEC.md",
+ "Modules": [
+  {
+   "Name": "ProjectEmergence",
+   "Type": "Runtime",
+   "LoadingPhase": "Default"
+  },
+  {
+   "Name": "EmergeCore",
+   "Type": "Runtime",
+   "LoadingPhase": "Default"
+  }
+ ],
+ "Plugins": [
+  {
+   "Name": "ModelContextProtocol",
+   "Enabled": true
+  }
+ ]
 }
