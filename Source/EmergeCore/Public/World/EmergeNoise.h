@@ -37,4 +37,12 @@ public:
 	// suppressed heard -> TargetExact only with line of sight, else Investigate.
 	UFUNCTION(BlueprintCallable, Category = "World|Noise")
 	static EEmergeNoiseResponse ResponseToShot(bool bSuppressed, bool bHeard, bool bLineOfSight);
+
+	// Footstep audible radius (meters) scaled by movement speed ratio: 2m creep ... 20m sprint.
+	UFUNCTION(BlueprintCallable, Category = "World|Noise")
+	static float FootstepRadiusM(float SpeedRatio);
+
+	// Gunshot audible radius (meters): map-event loud unless suppressed.
+	UFUNCTION(BlueprintCallable, Category = "World|Noise")
+	static float GunshotRadiusM(bool bSuppressed);
 };

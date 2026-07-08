@@ -27,3 +27,13 @@ EEmergeNoiseResponse UEmergeNoise::ResponseToShot(bool bSuppressed, bool bHeard,
 	}
 	return bLineOfSight ? EEmergeNoiseResponse::TargetExact : EEmergeNoiseResponse::Investigate;
 }
+
+float UEmergeNoise::FootstepRadiusM(float SpeedRatio)
+{
+	return 2.0f + 18.0f * FMath::Clamp(SpeedRatio, 0.0f, 1.0f);
+}
+
+float UEmergeNoise::GunshotRadiusM(bool bSuppressed)
+{
+	return bSuppressed ? 120.0f : 800.0f;
+}
