@@ -7,7 +7,7 @@ UEmergeStaggerComponent::UEmergeStaggerComponent()
 
 void UEmergeStaggerComponent::ApplyHit(float Damage, EEmergeBodyPart Part, EEmergeHitDir Dir)
 {
-	Meter += UEmergeStagger::HitStaggerAdd(Damage, Part, Dir);
+	Meter += UEmergeStagger::HitStaggerAddTuned(Tuning, Damage, Part, Dir);
 }
 
 void UEmergeStaggerComponent::Recover(float DeltaSeconds)
@@ -17,12 +17,12 @@ void UEmergeStaggerComponent::Recover(float DeltaSeconds)
 
 EEmergeStaggerState UEmergeStaggerComponent::CurrentState() const
 {
-	return UEmergeStagger::StateForMeter(Meter);
+	return UEmergeStagger::StateForMeterTuned(Tuning, Meter);
 }
 
 float UEmergeStaggerComponent::SpeedMultiplier() const
 {
-	return UEmergeStagger::LocomotionSpeedMultiplier(CurrentState());
+	return UEmergeStagger::LocomotionSpeedMultiplierTuned(Tuning, CurrentState());
 }
 
 void UEmergeStaggerComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)

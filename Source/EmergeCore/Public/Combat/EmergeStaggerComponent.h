@@ -6,13 +6,16 @@
 
 // Runtime stagger component: accumulates a stagger meter from incoming hits (via UEmergeStagger),
 // recovers it over time, and exposes the current locomotion state + speed multiplier a character's
-// movement should read. Headless-testable: ApplyHit()/Recover() are pure state math.
+// movement should read. Tuning is an editor-editable struct (defaults = tested golden values).
 UCLASS(ClassGroup = (Emerge), meta = (BlueprintSpawnableComponent))
 class EMERGECORE_API UEmergeStaggerComponent : public UActorComponent
 {
 	GENERATED_BODY()
 public:
 	UEmergeStaggerComponent();
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Emerge|Stagger")
+	FEmergeStaggerTuning Tuning;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Emerge|Stagger")
 	float Meter = 0.0f;
