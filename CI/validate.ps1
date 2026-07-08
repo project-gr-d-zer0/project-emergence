@@ -7,6 +7,10 @@ Set-Location $repo
 git fetch --quiet origin 2>$null
 git reset --hard origin/master 2>$null
 git clean -fd 2>$null
+# Kill any lingering test-runner from a previous cycle - it holds a write-lock on the module DLLs and makes
+# the next build fail spuriously (UbaSessionServer 'file being used' retries).
+Get-Process UnrealEditor-Cmd -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Milliseconds 500
 $ue = $env:UE_ROOT
 if (-not $ue) {
   foreach ($b in @("C:\Program Files\Epic Games","E:\EpicGamesLibrary","D:\EpicGamesLibrary","C:\EpicGamesLibrary","E:\Epic Games","D:\Epic Games")) {
