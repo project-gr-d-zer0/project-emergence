@@ -37,6 +37,12 @@ bool UEmergeInventoryComponent::TryAddItem(UEmergeItemDefinition* Item, int32 Qu
 	{
 		return false;
 	}
+	// Per-item MaxStack cap. Only enforced when the item opts into stacking (MaxStack > 1);
+	// the default of 1 is treated as unbounded so existing weight-gated behavior is preserved.
+	if (Item->MaxStack > 1 && GetQuantity(Item) + Quantity > Item->MaxStack)
+	{
+		return false;
+	}
 	const float Added = Item->WeightKg * Quantity;
 	if (GetCurrentWeightKg() + Added > MaxWeightKg)
 	{
