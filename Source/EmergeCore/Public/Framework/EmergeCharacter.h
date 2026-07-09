@@ -43,4 +43,10 @@ public:
 	// LIDAR rays (walls/floor/ceiling distances + hit names), and nearby actors. Read via Remote Control.
 	UFUNCTION(BlueprintCallable, Category = "Emerge|Sensor")
 	FString SenseEnvironment(float Radius = 4000.0f);
+
+private:
+	// Persistent world-memory occupancy grid (2m cells): key=packed(cx,cy), val 1=free 2=obstacle.
+	TMap<int64, uint8> OccGrid;
+	float StuckTime = 0.0f;   // seconds moving-input held but not moving (mismatch/glitch oracle)
+	float AirTime = 0.0f;     // seconds since last grounded
 };
