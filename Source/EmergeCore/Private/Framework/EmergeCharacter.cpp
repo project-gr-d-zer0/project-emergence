@@ -5,6 +5,9 @@
 #include "Combat/EmergeDamageComponent.h"
 #include "Survival/EmergeStatusEffectComponent.h"
 #include "Combat/EmergeEquipmentComponent.h"
+#include "Settings/AlsCharacterSettings.h"
+#include "Settings/AlsMovementSettings.h"
+#include "UObject/ConstructorHelpers.h"
 #include "Inventory/EmergeInventoryComponent.h"
 #include "Combat/EmergeStagger.h"
 #include "Utility/AlsGameplayTags.h"
@@ -22,6 +25,22 @@ AEmergeCharacter::AEmergeCharacter(const FObjectInitializer& ObjectInitializer)
 	StatusEffects = CreateDefaultSubobject<UEmergeStatusEffectComponent>(TEXT("StatusEffects"));
 	Equipment = CreateDefaultSubobject<UEmergeEquipmentComponent>(TEXT("Equipment"));
 	Inventory = CreateDefaultSubobject<UEmergeInventoryComponent>(TEXT("Inventory"));
+
+	// ALS gameplay + movement settings. AAlsCharacter guards its animation refresh on IsValid(Settings)
+	// (AlsCharacter.cpp ~L271), so without these the pose never updates while moving. ALS ships no
+	// defaults for them (B_Als_Character assigns them in BP); assign them here so every survivor works.
+	static ConstructorHelpers::FObjectFinder<UAlsCharacterSettings> AlsSettings(
+		TEXT("/ALS/ALS/Data/Character/CS_Als_Default.CS_Als_Default"));
+	if (AlsSettings.Succeeded())
+	{
+		Settings = AlsSettings.Object;
+	}
+	static ConstructorHelpers::FObjectFinder<UAlsMovementSettings> AlsMovement(
+		TEXT("/ALS/ALS/Data/Character/Movement/MS_Als_Normal.MS_Als_Normal"));
+	if (AlsMovement.Succeeded())
+	{
+		MovementSettings = AlsMovement.Object;
+	}
 }
 
 void AEmergeCharacter::Tick(float DeltaSeconds)
