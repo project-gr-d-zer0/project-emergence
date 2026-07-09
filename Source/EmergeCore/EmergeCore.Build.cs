@@ -6,7 +6,7 @@ public class EmergeCore : ModuleRules
     {
         PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
         // Public: exposed to dependent modules. Private: cpp-only (kept minimal to reduce compile time).
-        PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "ALS", "ALSExtras", "ALSCamera", "EnhancedInput" });
+        PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "ALS", "ALSExtras", "ALSCamera", "EnhancedInput", "NavigationSystem" });
         PrivateDependencyModuleNames.AddRange(new string[] { });
 
         // Expose per-area public subdirs so headers can be included by leaf name

@@ -39,6 +39,14 @@ public:
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void CalcCamera(float DeltaTime, struct FMinimalViewInfo& OutResult) override;
 
+	// Smart pathing: Claude picks a target, the engine paths + this follows it (no AIController).
+	UFUNCTION(BlueprintCallable, Category = "Emerge|Nav")
+	bool NavigateTo(FVector Destination);
+	UFUNCTION(BlueprintCallable, Category = "Emerge|Nav")
+	void StopNavigating();
+	UFUNCTION(BlueprintCallable, Category = "Emerge|Nav")
+	FString GetNavProgress();
+
 	// Structured spatial snapshot for autonomous testing: player movement, game camera POV,
 	// LIDAR rays (walls/floor/ceiling distances + hit names), and nearby actors. Read via Remote Control.
 	UFUNCTION(BlueprintCallable, Category = "Emerge|Sensor")
@@ -49,4 +57,10 @@ private:
 	TMap<int64, uint8> OccGrid;
 	float StuckTime = 0.0f;   // seconds moving-input held but not moving (mismatch/glitch oracle)
 	float AirTime = 0.0f;     // seconds since last grounded
+	TArray<FVector> NavPath;
+	int32 NavIdx = 0;
+	bool bNavigating = false;
+	FVector NavGoal = FVector::ZeroVector;
+	float NavStuckTime = 0.0f;
+	FString NavState = TEXT("idle");
 };

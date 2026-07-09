@@ -13,6 +13,8 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "NavigationSystem.h"
+#include "NavigationPath.h"
 #include "GameFramework/WorldSettings.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Animation/AnimInstance.h"
@@ -104,6 +106,23 @@ void AEmergeCharacter::Tick(float DeltaSeconds)
 		const bool bIn = MC->GetLastInputVector().SizeSquared() > 0.01f;
 		StuckTime = (bIn && GetVelocity().Size2D() < 10.0f && bGnd) ? StuckTime + DeltaSeconds : 0.0f;
 		AirTime = bGnd ? 0.0f : AirTime + DeltaSeconds;
+	}
+
+	// nav-follow: steer toward the current path waypoint (manual follower, drives ALS via AddMovementInput).
+	if (bNavigating && NavPath.IsValidIndex(NavIdx))
+	{
+		const FVector Cur = GetActorLocation();
+		if (FVector::Dist2D(Cur, NavPath[NavIdx]) <= 120.0f)
+		{
+			++NavIdx;
+			if (!NavPath.IsValidIndex(NavIdx)) { bNavigating = false; NavState = TEXT("arrived"); }
+		}
+		else
+		{
+			AddMovementInput((NavPath[NavIdx] - Cur).GetSafeNormal2D(), 1.0f);
+			NavStuckTime = (GetVelocity().Size2D() < 10.0f) ? NavStuckTime + DeltaSeconds : 0.0f;
+			if (NavStuckTime > 3.0f) { bNavigating = false; NavState = TEXT("blocked"); }
+		}
 	}
 
 	if (CVarEmergeTelemetry.GetValueOnGameThread() != 0)
@@ -392,4 +411,38 @@ FString AEmergeCharacter::SenseEnvironment(float Radius)
 		*FString::Join(Rays, TEXT(",")), *FString::Join(Ledges, TEXT(",")), *AnomJson, *AffJson,
 		*MismatchJson, *ConseqJson, *InvJson, *MemJson,
 		*BonesJson, *AnimJson, *FString::Join(ActorLines, TEXT(",")));
+}
+
+bool AEmergeCharacter::NavigateTo(FVector Destination)
+{
+	UNavigationSystemV1* Nav = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());
+	if (!Nav) { NavState = TEXT("no_navsystem"); bNavigating = false; return false; }
+	UNavigationPath* Path = Nav->FindPathToLocationSynchronously(GetWorld(), GetActorLocation(), Destination, this);
+	if (!Path || !Path->IsValid() || Path->PathPoints.Num() < 2)
+	{
+		NavState = TEXT("no_path"); bNavigating = false; return false;
+	}
+	NavPath = Path->PathPoints;
+	NavIdx = 1;
+	NavGoal = Destination;
+	NavStuckTime = 0.0f;
+	bNavigating = true;
+	NavState = Path->IsPartial() ? TEXT("following_partial") : TEXT("following");
+	return true;
+}
+
+void AEmergeCharacter::StopNavigating()
+{
+	bNavigating = false;
+	NavState = TEXT("idle");
+	NavPath.Reset();
+	NavIdx = 0;
+}
+
+FString AEmergeCharacter::GetNavProgress()
+{
+	const float DistRem = bNavigating ? FVector::Dist2D(GetActorLocation(), NavGoal) : 0.0f;
+	return FString::Printf(
+		TEXT("{\"state\":\"%s\",\"navigating\":%s,\"waypoint\":%d,\"total\":%d,\"distRemaining\":%.0f,\"stuckTime\":%.1f}"),
+		*NavState, bNavigating ? TEXT("true") : TEXT("false"), NavIdx, NavPath.Num(), DistRem, NavStuckTime);
 }
