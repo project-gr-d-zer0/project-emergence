@@ -5,16 +5,16 @@
 #include "Combat/EmergeDamageComponent.h"
 #include "Survival/EmergeStatusEffectComponent.h"
 #include "Combat/EmergeEquipmentComponent.h"
-#include "Settings/AlsCharacterSettings.h"
-#include "Settings/AlsMovementSettings.h"
-#include "UObject/ConstructorHelpers.h"
 #include "Inventory/EmergeInventoryComponent.h"
 #include "Combat/EmergeStagger.h"
+#include "Settings/AlsCharacterSettings.h"
+#include "Settings/AlsMovementSettings.h"
 #include "Utility/AlsGameplayTags.h"
-#include "Components/InputComponent.h"
+#include "InputMappingContext.h"
+#include "InputAction.h"
+#include "UObject/ConstructorHelpers.h"
 
-AEmergeCharacter::AEmergeCharacter(const FObjectInitializer& ObjectInitializer)
-	: Super(ObjectInitializer)
+AEmergeCharacter::AEmergeCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
 
@@ -26,161 +26,58 @@ AEmergeCharacter::AEmergeCharacter(const FObjectInitializer& ObjectInitializer)
 	Equipment = CreateDefaultSubobject<UEmergeEquipmentComponent>(TEXT("Equipment"));
 	Inventory = CreateDefaultSubobject<UEmergeInventoryComponent>(TEXT("Inventory"));
 
-	// ALS gameplay + movement settings. AAlsCharacter guards its animation refresh on IsValid(Settings)
-	// (AlsCharacter.cpp ~L271), so without these the pose never updates while moving. ALS ships no
-	// defaults for them (B_Als_Character assigns them in BP); assign them here so every survivor works.
+	// ALS gameplay + movement settings (required or the animation refresh early-returns).
 	static ConstructorHelpers::FObjectFinder<UAlsCharacterSettings> AlsSettings(
 		TEXT("/ALS/ALS/Data/Character/CS_Als_Default.CS_Als_Default"));
-	if (AlsSettings.Succeeded())
-	{
-		Settings = AlsSettings.Object;
-	}
+	if (AlsSettings.Succeeded()) { Settings = AlsSettings.Object; }
 	static ConstructorHelpers::FObjectFinder<UAlsMovementSettings> AlsMovement(
 		TEXT("/ALS/ALS/Data/Character/Movement/MS_Als_Normal.MS_Als_Normal"));
-	if (AlsMovement.Succeeded())
-	{
-		MovementSettings = AlsMovement.Object;
-	}
+	if (AlsMovement.Succeeded()) { MovementSettings = AlsMovement.Object; }
+
+	// Enhanced Input: assign the ALS mapping context + action assets (inherited protected members).
+	static ConstructorHelpers::FObjectFinder<UInputMappingContext> IMC(
+		TEXT("/ALS/ALS/Data/Input/IMC_Als_Default.IMC_Als_Default"));
+	if (IMC.Succeeded()) { InputMappingContext = IMC.Object; }
+
+#define EMERGE_FIND_IA(Member, Path) \
+	{ static ConstructorHelpers::FObjectFinder<UInputAction> Finder_##Member(TEXT(Path)); \
+	  if (Finder_##Member.Succeeded()) { Member = Finder_##Member.Object; } }
+
+	EMERGE_FIND_IA(LookMouseAction,     "/ALS/ALS/Data/Input/IA_Als_LookMouse.IA_Als_LookMouse")
+	EMERGE_FIND_IA(LookAction,          "/ALS/ALS/Data/Input/IA_Als_Look.IA_Als_Look")
+	EMERGE_FIND_IA(MoveAction,          "/ALS/ALS/Data/Input/IA_Als_Move.IA_Als_Move")
+	EMERGE_FIND_IA(SprintAction,        "/ALS/ALS/Data/Input/IA_Als_Sprint.IA_Als_Sprint")
+	EMERGE_FIND_IA(WalkAction,          "/ALS/ALS/Data/Input/IA_Als_Walk.IA_Als_Walk")
+	EMERGE_FIND_IA(CrouchAction,        "/ALS/ALS/Data/Input/IA_Als_Crouch.IA_Als_Crouch")
+	EMERGE_FIND_IA(JumpAction,          "/ALS/ALS/Data/Input/IA_Als_Jump.IA_Als_Jump")
+	EMERGE_FIND_IA(AimAction,           "/ALS/ALS/Data/Input/IA_Als_Aim.IA_Als_Aim")
+	EMERGE_FIND_IA(RagdollAction,       "/ALS/ALS/Data/Input/IA_Als_Ragdoll.IA_Als_Ragdoll")
+	EMERGE_FIND_IA(RollAction,          "/ALS/ALS/Data/Input/IA_Als_Roll.IA_Als_Roll")
+	EMERGE_FIND_IA(RotationModeAction,  "/ALS/ALS/Data/Input/IA_Als_RotationMode.IA_Als_RotationMode")
+	EMERGE_FIND_IA(ViewModeAction,      "/ALS/ALS/Data/Input/IA_Als_ViewMode.IA_Als_ViewMode")
+	EMERGE_FIND_IA(SwitchShoulderAction,"/ALS/ALS/Data/Input/IA_Als_SwitchShoulder.IA_Als_SwitchShoulder")
+
+#undef EMERGE_FIND_IA
 }
 
 void AEmergeCharacter::Tick(float DeltaSeconds)
 {
-	Super::Tick(DeltaSeconds);
-	if (!Stagger || !Stamina)
-	{
-		return;
-	}
+	Super::Tick(DeltaSeconds);   // ALS example: camera + input-driven locomotion
 
-	// The tested mobility mapping: stagger state + sprint intent + stamina -> 0 ragdoll / 1 walk / 2 run / 3 sprint.
-	const int32 Mobility = UEmergeStagger::MobilityForState(Stagger->CurrentState(), bWantsToSprint, Stamina->CanSprint());
-	const bool bRagdolling = GetLocomotionAction() == AlsLocomotionActionTags::Ragdolling;
-
-	if (Mobility == 0)
+	// Stagger differentiator: a knockdown drops the survivor into a physics ragdoll.
+	if (Stagger)
 	{
-		if (!bRagdolling)
+		const EEmergeStaggerState State = Stagger->CurrentState();
+		if ((State == EEmergeStaggerState::Knockdown || State == EEmergeStaggerState::Dead) &&
+			GetLocomotionAction() != AlsLocomotionActionTags::Ragdolling)
 		{
 			StartRagdolling();
 		}
 	}
-	else
-	{
-		if (bRagdolling)
-		{
-			StopRagdolling();
-		}
-		SetDesiredGait(Mobility >= 3 ? AlsGaitTags::Sprinting
-			: Mobility == 2 ? AlsGaitTags::Running
-			: AlsGaitTags::Walking);
-	}
 
-	// Stamina: sprint drains (scaled by encumbrance load tier), otherwise regenerates.
-	const int32 LoadTier = Inventory ? Inventory->GetLoadTier() : 0;
-	Stamina->Simulate(DeltaSeconds, Mobility >= 3, LoadTier);
-
-	// Status effects (bleeding) drain vitals continuously.
+	// Bleeding drains vitals continuously.
 	if (StatusEffects && Vitals)
 	{
 		StatusEffects->Simulate(DeltaSeconds, Vitals);
 	}
-}
-
-void AEmergeCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
-{
-	Super::SetupPlayerInputComponent(PlayerInputComponent);
-	PlayerInputComponent->BindAxis(TEXT("MoveForward"), this, &AEmergeCharacter::MoveForward);
-	PlayerInputComponent->BindAxis(TEXT("MoveRight"), this, &AEmergeCharacter::MoveRight);
-	PlayerInputComponent->BindAxis(TEXT("Turn"), this, &AEmergeCharacter::TurnYaw);
-	PlayerInputComponent->BindAxis(TEXT("LookUp"), this, &AEmergeCharacter::LookUpPitch);
-	PlayerInputComponent->BindAction(TEXT("Jump"), IE_Pressed, this, &AEmergeCharacter::OnJumpPressed);
-	PlayerInputComponent->BindAction(TEXT("Jump"), IE_Released, this, &AEmergeCharacter::OnJumpReleased);
-	PlayerInputComponent->BindAction(TEXT("Sprint"), IE_Pressed, this, &AEmergeCharacter::SprintPressed);
-	PlayerInputComponent->BindAction(TEXT("Sprint"), IE_Released, this, &AEmergeCharacter::SprintReleased);
-	PlayerInputComponent->BindAction(TEXT("Crouch"), IE_Pressed, this, &AEmergeCharacter::ToggleCrouch);
-	PlayerInputComponent->BindAction(TEXT("Aim"), IE_Pressed, this, &AEmergeCharacter::AimPressed);
-	PlayerInputComponent->BindAction(TEXT("Aim"), IE_Released, this, &AEmergeCharacter::AimReleased);
-}
-
-void AEmergeCharacter::MoveForward(float Value)
-{
-	if (Value != 0.0f)
-	{
-		// ALS rotates the character itself; move relative to the control rotation's yaw.
-		const FRotator YawRotation(0.0f, GetControlRotation().Yaw, 0.0f);
-		AddMovementInput(FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X), Value);
-	}
-}
-
-void AEmergeCharacter::MoveRight(float Value)
-{
-	if (Value != 0.0f)
-	{
-		const FRotator YawRotation(0.0f, GetControlRotation().Yaw, 0.0f);
-		AddMovementInput(FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y), Value);
-	}
-}
-
-void AEmergeCharacter::TurnYaw(float Value)
-{
-	AddControllerYawInput(Value);
-}
-
-void AEmergeCharacter::LookUpPitch(float Value)
-{
-	AddControllerPitchInput(Value);
-}
-
-void AEmergeCharacter::SprintPressed()
-{
-	bWantsToSprint = true;
-}
-
-void AEmergeCharacter::SprintReleased()
-{
-	bWantsToSprint = false;
-}
-
-void AEmergeCharacter::ToggleCrouch()
-{
-	bCrouched = !bCrouched;
-	SetDesiredStance(bCrouched ? AlsStanceTags::Crouching : AlsStanceTags::Standing);
-}
-
-void AEmergeCharacter::AimPressed()
-{
-	SetDesiredAiming(true);
-	SetDesiredRotationMode(AlsRotationModeTags::Aiming);
-	SetOverlayMode(AlsOverlayModeTags::Rifle);   // visible rifle-hold aim pose (real weapon mesh later)
-}
-
-void AEmergeCharacter::AimReleased()
-{
-	SetDesiredAiming(false);
-	SetDesiredRotationMode(AlsRotationModeTags::VelocityDirection);
-	SetOverlayMode(AlsOverlayModeTags::Default);
-}
-
-void AEmergeCharacter::OnJumpPressed()
-{
-	// Match ALS's own jump priority: recover from ragdoll, else mantle/vault a ledge, else stand from
-	// crouch, else jump. This is what makes vaulting over obstacles work.
-	if (StopRagdolling())
-	{
-		return;
-	}
-	if (StartMantling())
-	{
-		return;
-	}
-	if (GetStance() == AlsStanceTags::Crouching)
-	{
-		bCrouched = false;
-		SetDesiredStance(AlsStanceTags::Standing);
-		return;
-	}
-	Jump();
-}
-
-void AEmergeCharacter::OnJumpReleased()
-{
-	StopJumping();
 }
