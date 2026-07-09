@@ -292,17 +292,17 @@ FString AEmergeCharacter::SenseEnvironment(float Radius)
 
 	// Limb/joint telemetry: key bone positions relative to the actor root, for verifying animation/pose.
 	FString Bones = TEXT("null");
-	if (USkeletalMeshComponent* Mesh = GetMesh())
+	if (USkeletalMeshComponent* SkelMesh = GetMesh())
 	{
 		auto Rel = [&](const TCHAR* BoneName) -> FString
 		{
-			const FVector W = Mesh->GetSocketLocation(FName(BoneName));
+			const FVector W = SkelMesh->GetSocketLocation(FName(BoneName));
 			const FVector R = W - Pos;
 			return FString::Printf(TEXT("[%.0f,%.0f,%.0f]"), R.X, R.Y, R.Z);
 		};
-		const FVector HandL = Mesh->GetSocketLocation(FName(TEXT("hand_l")));
-		const FVector HandR = Mesh->GetSocketLocation(FName(TEXT("hand_r")));
-		const FVector Head = Mesh->GetSocketLocation(FName(TEXT("head")));
+		const FVector HandL = SkelMesh->GetSocketLocation(FName(TEXT("hand_l")));
+		const FVector HandR = SkelMesh->GetSocketLocation(FName(TEXT("hand_r")));
+		const FVector Head = SkelMesh->GetSocketLocation(FName(TEXT("head")));
 		const float HandSpread = FVector::Dist2D(HandL, HandR);
 		const bool bTpose = HandSpread > 120.0f;                 // arms wide + level ~= T-pose (heuristic)
 		const bool bValid = !Head.IsNearlyZero();                // (0,0,0) => bones not ticked this frame
