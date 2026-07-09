@@ -7,12 +7,21 @@
 #include "Combat/EmergeEquipmentComponent.h"
 #include "Inventory/EmergeInventoryComponent.h"
 #include "Combat/EmergeStagger.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "HAL/IConsoleManager.h"
 #include "Settings/AlsCharacterSettings.h"
 #include "Settings/AlsMovementSettings.h"
 #include "Utility/AlsGameplayTags.h"
 #include "InputMappingContext.h"
 #include "InputAction.h"
 #include "UObject/ConstructorHelpers.h"
+
+DEFINE_LOG_CATEGORY(LogEmergeTelemetry);
+
+static TAutoConsoleVariable<int32> CVarEmergeTelemetry(
+	TEXT("emerge.telemetry"), 0,
+	TEXT("Per-tick survivor telemetry to LogEmergeTelemetry (0=off, 1=on). Read back externally via the log."),
+	ECVF_Cheat);
 
 AEmergeCharacter::AEmergeCharacter()
 {
@@ -63,6 +72,20 @@ AEmergeCharacter::AEmergeCharacter()
 void AEmergeCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);   // ALS example: camera + input-driven locomotion
+
+	if (CVarEmergeTelemetry.GetValueOnGameThread() != 0)
+	{
+		const UCharacterMovementComponent* Move = GetCharacterMovement();
+		const FVector Vel = Move ? Move->Velocity : FVector::ZeroVector;
+		const FVector Input = Move ? Move->GetLastInputVector() : FVector::ZeroVector;
+		const FRotator Ctrl = GetControlRotation();
+		UE_LOG(LogEmergeTelemetry, Log,
+			TEXT("EMERGE_TEL spd=%.1f vel=%s input=%s ctrl=%s gait=%s stance=%s rotmode=%s overlay=%s locmode=%s action=%s"),
+			Vel.Size2D(), *Vel.ToCompactString(), *Input.ToCompactString(), *Ctrl.ToCompactString(),
+			*GetGait().GetTagName().ToString(), *GetStance().GetTagName().ToString(),
+			*GetRotationMode().GetTagName().ToString(), *GetOverlayMode().GetTagName().ToString(),
+			*GetLocomotionMode().GetTagName().ToString(), *GetLocomotionAction().GetTagName().ToString());
+	}
 
 	// Stagger differentiator: a knockdown drops the survivor into a physics ragdoll.
 	if (Stagger)

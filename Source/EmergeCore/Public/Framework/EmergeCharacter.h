@@ -3,6 +3,8 @@
 #include "AlsCharacterExample.h"
 #include "EmergeCharacter.generated.h"
 
+EMERGECORE_API DECLARE_LOG_CATEGORY_EXTERN(LogEmergeTelemetry, Log, All);
+
 class UEmergeVitalsComponent;
 class UEmergeStaggerComponent;
 class UEmergeStaminaComponent;
