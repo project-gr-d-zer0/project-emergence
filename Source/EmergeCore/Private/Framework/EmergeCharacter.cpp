@@ -13,6 +13,7 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "GameFramework/WorldSettings.h"
 #include "Camera/PlayerCameraManager.h"
 #include "GameFramework/Character.h"
 #include "HAL/IConsoleManager.h"
@@ -148,43 +149,115 @@ FString AEmergeCharacter::SenseEnvironment(float Radius)
 
 	const FVector Pos = GetActorLocation();
 	const FVector Vel = GetVelocity();
+	const FRotator ActorRot = GetActorRotation();
 	const FVector Fwd = GetActorForwardVector();
 	const FVector Origin = Pos + FVector(0.0f, 0.0f, 40.0f);
+	UCharacterMovementComponent* Move = GetCharacterMovement();
 
-	// Game camera POV (from the player camera manager, not the editor camera).
-	FString Cam = TEXT("null");
-	if (const APlayerController* PC = Cast<APlayerController>(GetController()))
+	FCollisionQueryParams TP;
+	TP.AddIgnoredActor(this);
+
+	const bool bGrounded = Move && Move->IsMovingOnGround();
+	const bool bFalling = Move && Move->IsFalling();
+	const FVector InputVec = Move ? Move->GetLastInputVector() : FVector::ZeroVector;
+	const bool bHasInput = InputVec.SizeSquared() > 0.01f;
+	FString MoveMode = TEXT("none");
+	if (Move)
 	{
-		if (const APlayerCameraManager* CM = PC->PlayerCameraManager)
+		switch (Move->MovementMode)
 		{
-			const FVector CL = CM->GetCameraLocation();
-			const FRotator CR = CM->GetCameraRotation();
-			Cam = FString::Printf(TEXT("{\"loc\":[%.0f,%.0f,%.0f],\"rot\":[%.1f,%.1f],\"fov\":%.0f}"),
-				CL.X, CL.Y, CL.Z, CR.Pitch, CR.Yaw, CM->GetFOVAngle());
+		case MOVE_Walking: MoveMode = TEXT("walking"); break;
+		case MOVE_NavWalking: MoveMode = TEXT("navwalking"); break;
+		case MOVE_Falling: MoveMode = TEXT("falling"); break;
+		case MOVE_Swimming: MoveMode = TEXT("swimming"); break;
+		case MOVE_Flying: MoveMode = TEXT("flying"); break;
+		default: MoveMode = TEXT("other"); break;
 		}
 	}
 
-	FCollisionQueryParams TraceParams;
-	TraceParams.AddIgnoredActor(this);
+	FVector CamLoc = Origin;
+	FVector CamFwd = Fwd;
+	float FOV = 90.0f;
+	if (FollowCamera)
+	{
+		CamLoc = FollowCamera->GetComponentLocation();
+		CamFwd = FollowCamera->GetForwardVector();
+		FOV = FollowCamera->FieldOfView;
+	}
 
-	// LIDAR ring: 16 rays every 22.5 deg (relative to actor forward) + floor + ceiling.
+	// Aim trace: what the camera is pointing at.
+	FString Aim = TEXT("null");
+	{
+		FHitResult AimHit;
+		if (World->LineTraceSingleByChannel(AimHit, CamLoc, CamLoc + CamFwd * 15000.0f, ECC_Visibility, TP) && AimHit.GetActor())
+		{
+			Aim = FString::Printf(TEXT("{\"hit\":\"%s\",\"cls\":\"%s\",\"d\":%.0f,\"pt\":[%.0f,%.0f,%.0f]}"),
+				*AimHit.GetActor()->GetName(), *AimHit.GetActor()->GetClass()->GetName(), AimHit.Distance,
+				AimHit.ImpactPoint.X, AimHit.ImpactPoint.Y, AimHit.ImpactPoint.Z);
+		}
+	}
+
+	// LIDAR ring: categorized, normalized distance, surface normal Z (floor vs wall).
 	TArray<FString> Rays;
 	const int32 N = 16;
+	const float RayLen = 5000.0f;
 	for (int32 i = 0; i < N; ++i)
 	{
 		const float Ang = (360.0f / N) * i;
-		const FVector Dir = GetActorRotation().RotateVector(FRotator(0.0f, Ang, 0.0f).RotateVector(FVector::ForwardVector));
+		const FVector Dir = ActorRot.RotateVector(FRotator(0.0f, Ang, 0.0f).RotateVector(FVector::ForwardVector));
 		FHitResult Hit;
-		const bool bHit = World->LineTraceSingleByChannel(Hit, Origin, Origin + Dir * 5000.0f, ECC_Visibility, TraceParams);
-		Rays.Add(FString::Printf(TEXT("{\"a\":%.0f,\"d\":%.0f,\"hit\":\"%s\"}"),
-			Ang, bHit ? Hit.Distance : 5000.0f, bHit && Hit.GetActor() ? *Hit.GetActor()->GetName() : TEXT("none")));
+		const bool bHit = World->LineTraceSingleByChannel(Hit, Origin, Origin + Dir * RayLen, ECC_Visibility, TP);
+		FString Cat = TEXT("open");
+		float NormD = 1.0f;
+		float Nz = 0.0f;
+		FString HitName = TEXT("none");
+		if (bHit)
+		{
+			NormD = Hit.Distance / RayLen;
+			Nz = Hit.ImpactNormal.Z;
+			AActor* HA = Hit.GetActor();
+			HitName = HA ? HA->GetName() : TEXT("?");
+			if (HA && HA->IsA(APawn::StaticClass())) { Cat = TEXT("character"); }
+			else if (HitName.Contains(TEXT("build")) || HitName.Contains(TEXT("wall")) || HitName.Contains(TEXT("pillar")) || HitName.Contains(TEXT("storefront"))) { Cat = TEXT("building"); }
+			else if (HitName.Contains(TEXT("ground")) || HitName.Contains(TEXT("road")) || HitName.Contains(TEXT("walkway")) || HitName.Contains(TEXT("curb"))) { Cat = TEXT("ground"); }
+			else { Cat = TEXT("prop"); }
+		}
+		Rays.Add(FString::Printf(TEXT("{\"a\":%.0f,\"nd\":%.2f,\"cat\":\"%s\",\"nz\":%.2f,\"hit\":\"%s\"}"),
+			Ang, NormD, *Cat, Nz, *HitName));
 	}
-	FHitResult FloorHit;
-	const bool bFloor = World->LineTraceSingleByChannel(FloorHit, Origin, Origin - FVector(0, 0, 5000.0f), ECC_Visibility, TraceParams);
-	FHitResult CeilHit;
-	const bool bCeil = World->LineTraceSingleByChannel(CeilHit, Origin, Origin + FVector(0, 0, 5000.0f), ECC_Visibility, TraceParams);
 
-	// Nearby actors (characters + static meshes) within Radius, nearest first, capped.
+	// Ledge / wall-ahead probes (vault debugging): 3 forward angles.
+	TArray<FString> Ledges;
+	const float AheadDist = 150.0f;
+	for (int32 k = -1; k <= 1; ++k)
+	{
+		const float Ang = 20.0f * k;
+		const FVector Dir = ActorRot.RotateVector(FRotator(0.0f, Ang, 0.0f).RotateVector(FVector::ForwardVector));
+		const FVector ProbeTop = Pos + Dir * AheadDist + FVector(0.0f, 0.0f, 60.0f);
+		FHitResult FloorAhead;
+		const bool bFloorAhead = World->LineTraceSingleByChannel(FloorAhead, ProbeTop, ProbeTop - FVector(0.0f, 0.0f, 400.0f), ECC_Visibility, TP);
+		FHitResult WallAhead;
+		const FVector Eye = Pos + FVector(0.0f, 0.0f, 40.0f);
+		const bool bWall = World->LineTraceSingleByChannel(WallAhead, Eye, Eye + Dir * AheadDist, ECC_Visibility, TP);
+		Ledges.Add(FString::Printf(TEXT("{\"a\":%.0f,\"floor\":%s,\"floor_drop\":%.0f,\"ledge\":%s,\"wall\":%s,\"wall_d\":%.0f}"),
+			Ang,
+			bFloorAhead ? TEXT("true") : TEXT("false"),
+			bFloorAhead ? (ProbeTop.Z - FloorAhead.ImpactPoint.Z) : -1.0f,
+			(!bFloorAhead) ? TEXT("true") : TEXT("false"),
+			bWall ? TEXT("true") : TEXT("false"),
+			bWall ? WallAhead.Distance : -1.0f));
+	}
+
+	FHitResult FloorHit;
+	const bool bFloor = World->LineTraceSingleByChannel(FloorHit, Origin, Origin - FVector(0, 0, 5000.0f), ECC_Visibility, TP);
+	FHitResult CeilHit;
+	const bool bCeil = World->LineTraceSingleByChannel(CeilHit, Origin, Origin + FVector(0, 0, 5000.0f), ECC_Visibility, TP);
+
+	const float KillZ = World->GetWorldSettings() ? World->GetWorldSettings()->KillZ : -1.0e9f;
+	const bool bBelowKill = Pos.Z < KillZ;
+	const bool bFellThrough = bFalling && Vel.Z < -50.0f && !bFloor;
+	const bool bStuck = bHasInput && (Vel.Size2D() < 10.0f) && bGrounded;
+
 	struct FNear { float Dist; FString Line; };
 	TArray<FNear> Near;
 	for (TActorIterator<AActor> It(World); It; ++It)
@@ -194,8 +267,7 @@ FString AEmergeCharacter::SenseEnvironment(float Radius)
 		{
 			continue;
 		}
-		const bool bInteresting = A->IsA(ACharacter::StaticClass()) || A->IsA(APawn::StaticClass()) || A->IsA(AStaticMeshActor::StaticClass());
-		if (!bInteresting)
+		if (!(A->IsA(ACharacter::StaticClass()) || A->IsA(APawn::StaticClass()) || A->IsA(AStaticMeshActor::StaticClass())))
 		{
 			continue;
 		}
@@ -210,15 +282,23 @@ FString AEmergeCharacter::SenseEnvironment(float Radius)
 	}
 	Near.Sort([](const FNear& L, const FNear& R) { return L.Dist < R.Dist; });
 	TArray<FString> ActorLines;
-	for (int32 i = 0; i < Near.Num() && i < 25; ++i)
+	for (int32 i = 0; i < Near.Num() && i < 20; ++i)
 	{
 		ActorLines.Add(Near[i].Line);
 	}
 
 	return FString::Printf(
-		TEXT("{\"pos\":[%.0f,%.0f,%.0f],\"vel\":[%.0f,%.0f,%.0f],\"spd\":%.0f,\"fwd\":[%.2f,%.2f,%.2f],")
-		TEXT("\"cam\":%s,\"floor_d\":%.0f,\"ceil_d\":%.0f,\"rays\":[%s],\"actors\":[%s]}"),
-		Pos.X, Pos.Y, Pos.Z, Vel.X, Vel.Y, Vel.Z, Vel.Size2D(), Fwd.X, Fwd.Y, Fwd.Z,
-		*Cam, bFloor ? FloorHit.Distance : -1.0f, bCeil ? CeilHit.Distance : -1.0f,
-		*FString::Join(Rays, TEXT(",")), *FString::Join(ActorLines, TEXT(",")));
+		TEXT("{\"self\":{\"pos\":[%.0f,%.0f,%.0f],\"vel\":[%.0f,%.0f,%.0f],\"spd\":%.0f,\"velZ\":%.0f,\"move\":\"%s\",\"grounded\":%s,\"falling\":%s,\"hasInput\":%s},")
+		TEXT("\"cam\":{\"loc\":[%.0f,%.0f,%.0f],\"fwd\":[%.2f,%.2f,%.2f],\"fov\":%.0f},")
+		TEXT("\"aim\":%s,\"floor_d\":%.0f,\"ceil_d\":%.0f,")
+		TEXT("\"rays\":[%s],\"ledges\":[%s],")
+		TEXT("\"anomalies\":{\"fellThroughFloor\":%s,\"belowKillZ\":%s,\"stuck\":%s},")
+		TEXT("\"actors\":[%s]}"),
+		Pos.X, Pos.Y, Pos.Z, Vel.X, Vel.Y, Vel.Z, Vel.Size2D(), Vel.Z, *MoveMode,
+		bGrounded ? TEXT("true") : TEXT("false"), bFalling ? TEXT("true") : TEXT("false"), bHasInput ? TEXT("true") : TEXT("false"),
+		CamLoc.X, CamLoc.Y, CamLoc.Z, CamFwd.X, CamFwd.Y, CamFwd.Z, FOV,
+		*Aim, bFloor ? FloorHit.Distance : -1.0f, bCeil ? CeilHit.Distance : -1.0f,
+		*FString::Join(Rays, TEXT(",")), *FString::Join(Ledges, TEXT(",")),
+		bFellThrough ? TEXT("true") : TEXT("false"), bBelowKill ? TEXT("true") : TEXT("false"), bStuck ? TEXT("true") : TEXT("false"),
+		*FString::Join(ActorLines, TEXT(",")));
 }
