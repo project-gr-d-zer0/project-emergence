@@ -21,4 +21,12 @@ public:
 	// Whether the actor is allowed into a safe zone (hostiles are turned away).
 	UFUNCTION(BlueprintCallable, Category = "Economy|Reputation")
 	static bool CanAccessSafeZone(int32 Rep);
+
+	// Trader loyalty tier: unlocks only when player level AND reputation AND lifetime commerce ALL pass.
+	// >=30 lvl, >=90 rep, >=100000 commerce -> 3
+	// >=20 lvl, >=50 rep, >=25000 commerce  -> 2
+	// >=10 lvl, >=0  rep, >=5000 commerce   -> 1
+	// otherwise -> 0
+	UFUNCTION(BlueprintCallable, Category = "Economy|Reputation")
+	static int32 TraderTier(int32 PlayerLevel, int32 Rep, int32 LifetimeCommerce);
 };
