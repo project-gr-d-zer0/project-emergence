@@ -23,14 +23,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Emerge|Anim")
 	FString GetAnimDebug() const;
 
-	// One-shot jump clip for traversal hops (controller calls this when it launches).
-	void PlayHopAnim();
+	// One-shot vault clip for traversal mantles; returns the clip's play length (0 if unavailable)
+	// so the controller can match the scripted climb to the animation.
+	float PlayMantleAnim();
 
 protected:
 	UPROPERTY(EditAnywhere, Category = "Emerge|Anim") TObjectPtr<UAnimSequenceBase> IdleLoop;
 	UPROPERTY(EditAnywhere, Category = "Emerge|Anim") TObjectPtr<UAnimSequenceBase> WalkLoop;
 	UPROPERTY(EditAnywhere, Category = "Emerge|Anim") TObjectPtr<UAnimSequenceBase> JogLoop;
-	UPROPERTY(EditAnywhere, Category = "Emerge|Anim") TObjectPtr<UAnimSequenceBase> JumpOneShot;
+	UPROPERTY(EditAnywhere, Category = "Emerge|Anim") TObjectPtr<UAnimSequenceBase> MantleClip;
 
 private:
 	TObjectPtr<UAnimSequenceBase> CurrentLoop;

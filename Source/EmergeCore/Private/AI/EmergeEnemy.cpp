@@ -20,21 +20,23 @@ AEmergeEnemy::AEmergeEnemy()
 
 	if (USkeletalMeshComponent* MeshComp = GetMesh())
 	{
+		// UEFN mannequin (Game Animation Sample rig): locomotion AND real traversal clips on one
+		// skeleton — the Quinn/Unarmed combo had no mantle animation, so climbs read as jumps.
 		static ConstructorHelpers::FObjectFinder<USkeletalMesh> MeshAsset(
-			TEXT("/Game/Characters/Mannequins/Meshes/SKM_Quinn_Simple.SKM_Quinn_Simple"));
+			TEXT("/Game/Characters/UEFN_Mannequin/Meshes/SKM_UEFN_Mannequin.SKM_UEFN_Mannequin"));
 		if (MeshAsset.Succeeded()) { MeshComp->SetSkeletalMesh(MeshAsset.Object); }
 		static ConstructorHelpers::FObjectFinder<UAnimSequenceBase> Idle(
-			TEXT("/Game/Characters/Mannequins/Anims/Unarmed/MM_Idle.MM_Idle"));
+			TEXT("/Game/Characters/UEFN_Mannequin/Animations/Idle/M_Neutral_Stand_Idle_Loop.M_Neutral_Stand_Idle_Loop"));
 		if (Idle.Succeeded()) { IdleLoop = Idle.Object; }
 		static ConstructorHelpers::FObjectFinder<UAnimSequenceBase> Walk(
-			TEXT("/Game/Characters/Mannequins/Anims/Unarmed/Walk/MF_Unarmed_Walk_Fwd.MF_Unarmed_Walk_Fwd"));
+			TEXT("/Game/Characters/UEFN_Mannequin/Animations/Walk/M_Neutral_Walk_Loop_F.M_Neutral_Walk_Loop_F"));
 		if (Walk.Succeeded()) { WalkLoop = Walk.Object; }
 		static ConstructorHelpers::FObjectFinder<UAnimSequenceBase> Jog(
-			TEXT("/Game/Characters/Mannequins/Anims/Unarmed/Jog/MF_Unarmed_Jog_Fwd.MF_Unarmed_Jog_Fwd"));
+			TEXT("/Game/Characters/UEFN_Mannequin/Animations/Run/M_Neutral_Run_Loop_F.M_Neutral_Run_Loop_F"));
 		if (Jog.Succeeded()) { JogLoop = Jog.Object; }
-		static ConstructorHelpers::FObjectFinder<UAnimSequenceBase> JumpClip(
-			TEXT("/Game/Characters/Mannequins/Anims/Unarmed/Jump/MM_Jump.MM_Jump"));
-		if (JumpClip.Succeeded()) { JumpOneShot = JumpClip.Object; }
+		static ConstructorHelpers::FObjectFinder<UAnimSequenceBase> Vault(
+			TEXT("/Game/Characters/UEFN_Mannequin/Animations/Traversal/Vault/M_Neutral_Traversal_Vault_1_0_run_F_Lfoot.M_Neutral_Traversal_Vault_1_0_run_F_Lfoot"));
+		if (Vault.Succeeded()) { MantleClip = Vault.Object; }
 		MeshComp->SetRelativeLocationAndRotation(FVector(0.0f, 0.0f, -88.0f), FRotator(0.0f, -90.0f, 0.0f));
 		// Always evaluate the pose: render-gated anim ticking freezes offscreen/unfocused PIE poses.
 		MeshComp->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
@@ -57,13 +59,15 @@ void AEmergeEnemy::Tick(float DeltaSeconds)
 	}
 }
 
-void AEmergeEnemy::PlayHopAnim()
+float AEmergeEnemy::PlayMantleAnim()
 {
-	if (JumpOneShot && GetMesh())
+	if (MantleClip && GetMesh())
 	{
-		GetMesh()->PlayAnimation(JumpOneShot, false);
+		GetMesh()->PlayAnimation(MantleClip, false);
 		CurrentLoop = nullptr;   // force loop reselect on landing
+		return MantleClip->GetPlayLength();
 	}
+	return 0.0f;
 }
 
 FString AEmergeEnemy::GetAnimDebug() const

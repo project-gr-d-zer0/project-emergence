@@ -78,6 +78,7 @@ private:
 	FVector MantleMid = FVector::ZeroVector;
 	FVector MantleEnd = FVector::ZeroVector;
 	float MantleAlpha = -1.0f;  // <0 = inactive
+	float MantleLiveDuration = 0.8f;   // per-mantle: matched to the vault clip length
 	void UpdateCorneringScale(const APawn* Self, float DeltaSeconds);
 	void TryTraversalHop(APawn* Self, float DeltaSeconds);
 	void SetSpeed(float Speed);

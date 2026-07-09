@@ -140,7 +140,7 @@ void AEmergeEnemyController::TryTraversalHop(APawn* Self, float DeltaSeconds)
 	// it — the same climb-over mechanic the player's ALS mantle performs, without ALS.
 	if (MantleAlpha >= 0.0f)
 	{
-		MantleAlpha = FMath::Min(MantleAlpha + ((MantleDuration > 0.0f) ? DeltaSeconds / MantleDuration : 1.0f), 1.0f);
+		MantleAlpha = FMath::Min(MantleAlpha + ((MantleLiveDuration > 0.0f) ? DeltaSeconds / MantleLiveDuration : 1.0f), 1.0f);
 		const FVector P = (MantleAlpha < 0.45f)
 			? FMath::Lerp(MantleStart, MantleMid, MantleAlpha / 0.45f)
 			: FMath::Lerp(MantleMid, MantleEnd, (MantleAlpha - 0.45f) / 0.55f);
@@ -191,7 +191,12 @@ void AEmergeEnemyController::TryTraversalHop(APawn* Self, float DeltaSeconds)
 		Move->SetMovementMode(MOVE_Flying);
 		Move->Velocity = FVector::ZeroVector;
 		MantleAlpha = 0.0f;
-		if (AEmergeEnemy* Enemy = Cast<AEmergeEnemy>(SelfChar)) { Enemy->PlayHopAnim(); }
+		MantleLiveDuration = MantleDuration;
+		if (AEmergeEnemy* Enemy = Cast<AEmergeEnemy>(SelfChar))
+		{
+			const float ClipLen = Enemy->PlayMantleAnim();
+			if (ClipLen > 0.2f) { MantleLiveDuration = ClipLen; }
+		}
 		HopCooldown = HopCooldownSeconds;
 		++HopCount;
 	}
