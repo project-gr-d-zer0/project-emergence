@@ -9,12 +9,12 @@ class UEmergeStaminaComponent;
 class UEmergeDamageComponent;
 class UEmergeStatusEffectComponent;
 class UEmergeEquipmentComponent;
+class UEmergeInventoryComponent;
 
 // Base survivor pawn on the ALS-Refactored locomotion spine (replicated gaits/stances/mantling/ragdoll).
-// Ships with the full core survival runtime suite attached (vitals, stagger, stamina, damage resolver,
-// status effects, equipment) so the tested gameplay math is live on the pawn out of the box.
-// Basic WASD+mouse+jump input is bound in C++ (axis mappings in Config/DefaultInput.ini).
-// TODO(next): map stagger states onto ALS - Knockdown -> StartRagdolling(), Stumble/Stagger -> forced walk gait.
+// Ships with the full core survival runtime suite attached, and bridges the tested gameplay math into
+// ALS every frame: stagger state + sprint intent + stamina -> mobility tier -> ALS gait / ragdoll.
+// Knockdown = real ragdoll (stumble differentiator, phase-3 foundation); encumbrance scales sprint drain.
 UCLASS()
 class EMERGECORE_API AEmergeCharacter : public AAlsCharacter
 {
@@ -40,6 +40,14 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Emerge")
 	TObjectPtr<UEmergeEquipmentComponent> Equipment;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Emerge")
+	TObjectPtr<UEmergeInventoryComponent> Inventory;
+
+	// Sprint intent from input; actual sprinting is gated by stagger state + stamina in the bridge.
+	UPROPERTY(BlueprintReadOnly, Category = "Emerge|Movement")
+	bool bWantsToSprint = false;
+
+	virtual void Tick(float DeltaSeconds) override;
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 
 protected:
@@ -47,4 +55,6 @@ protected:
 	void MoveRight(float Value);
 	void TurnYaw(float Value);
 	void LookUpPitch(float Value);
+	void SprintPressed();
+	void SprintReleased();
 };
