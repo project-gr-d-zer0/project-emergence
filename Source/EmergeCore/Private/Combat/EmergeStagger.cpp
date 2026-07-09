@@ -76,3 +76,19 @@ float UEmergeStagger::LocomotionSpeedMultiplierTuned(const FEmergeStaggerTuning&
 		return 0.0f;
 	}
 }
+
+int32 UEmergeStagger::MobilityForState(EEmergeStaggerState State, bool bWantsSprint, bool bCanSprint)
+{
+	switch (State)
+	{
+	case EEmergeStaggerState::Knockdown:
+	case EEmergeStaggerState::Dead:
+		return 0;
+	case EEmergeStaggerState::Stumble:
+	case EEmergeStaggerState::Stagger:
+	case EEmergeStaggerState::Crawl:
+		return 1;
+	default:
+		return (bWantsSprint && bCanSprint) ? 3 : 2;
+	}
+}

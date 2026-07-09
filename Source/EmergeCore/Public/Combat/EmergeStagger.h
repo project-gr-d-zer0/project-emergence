@@ -87,4 +87,9 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Combat|Stagger")
 	static float LocomotionSpeedMultiplierTuned(const FEmergeStaggerTuning& Tuning, EEmergeStaggerState State);
+
+	// ALS locomotion bridge mapping: 0 = ragdoll (knockdown/dead), 1 = forced walk
+	// (stumble/stagger/crawl), 2 = run, 3 = sprint (only when wanted AND stamina allows).
+	UFUNCTION(BlueprintCallable, Category = "Combat|Stagger")
+	static int32 MobilityForState(EEmergeStaggerState State, bool bWantsSprint, bool bCanSprint);
 };
