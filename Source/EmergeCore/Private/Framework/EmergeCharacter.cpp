@@ -14,6 +14,9 @@
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/WorldSettings.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
 #include "Camera/PlayerCameraManager.h"
 #include "GameFramework/Character.h"
 #include "HAL/IConsoleManager.h"
@@ -287,18 +290,63 @@ FString AEmergeCharacter::SenseEnvironment(float Radius)
 		ActorLines.Add(Near[i].Line);
 	}
 
+	// Limb/joint telemetry: key bone positions relative to the actor root, for verifying animation/pose.
+	FString Bones = TEXT("null");
+	if (USkeletalMeshComponent* Mesh = GetMesh())
+	{
+		auto Rel = [&](const TCHAR* BoneName) -> FString
+		{
+			const FVector W = Mesh->GetSocketLocation(FName(BoneName));
+			const FVector R = W - Pos;
+			return FString::Printf(TEXT("[%.0f,%.0f,%.0f]"), R.X, R.Y, R.Z);
+		};
+		const FVector HandL = Mesh->GetSocketLocation(FName(TEXT("hand_l")));
+		const FVector HandR = Mesh->GetSocketLocation(FName(TEXT("hand_r")));
+		const FVector Head = Mesh->GetSocketLocation(FName(TEXT("head")));
+		const float HandSpread = FVector::Dist2D(HandL, HandR);
+		const bool bTpose = HandSpread > 120.0f;                 // arms wide + level ~= T-pose (heuristic)
+		const bool bValid = !Head.IsNearlyZero();                // (0,0,0) => bones not ticked this frame
+		Bones = FString::Printf(
+			TEXT("{\"head\":%s,\"hand_l\":%s,\"hand_r\":%s,\"foot_l\":%s,\"foot_r\":%s,\"pelvis\":%s,\"handSpread\":%.0f,\"tposeSuspect\":%s,\"valid\":%s}"),
+			*Rel(TEXT("head")), *Rel(TEXT("hand_l")), *Rel(TEXT("hand_r")),
+			*Rel(TEXT("foot_l")), *Rel(TEXT("foot_r")), *Rel(TEXT("pelvis")),
+			HandSpread, bTpose ? TEXT("true") : TEXT("false"), bValid ? TEXT("true") : TEXT("false"));
+	}
+
+	// Animation events/state: ALS locomotion action (Mantling=vault, Ragdolling, Rolling, GettingUp)
+	// + gait + active montage, so Claude KNOWS when the vault or any montage animation is triggered.
+	FString Anim;
+	{
+		const FString Action = GetLocomotionAction().IsValid() ? GetLocomotionAction().GetTagName().ToString() : FString(TEXT("none"));
+		FString Montage = TEXT("none");
+		float MPos = -1.0f;
+		if (USkeletalMeshComponent* Mesh2 = GetMesh())
+		{
+			if (UAnimInstance* AI = Mesh2->GetAnimInstance())
+			{
+				if (UAnimMontage* M = AI->GetCurrentActiveMontage())
+				{
+					Montage = M->GetName();
+					MPos = AI->Montage_GetPosition(M);
+				}
+			}
+		}
+		Anim = FString::Printf(TEXT("{\"action\":\"%s\",\"gait\":\"%s\",\"montage\":\"%s\",\"montagePos\":%.2f}"),
+			*Action, *GetGait().GetTagName().ToString(), *Montage, MPos);
+	}
+
 	return FString::Printf(
 		TEXT("{\"self\":{\"pos\":[%.0f,%.0f,%.0f],\"vel\":[%.0f,%.0f,%.0f],\"spd\":%.0f,\"velZ\":%.0f,\"move\":\"%s\",\"grounded\":%s,\"falling\":%s,\"hasInput\":%s},")
 		TEXT("\"cam\":{\"loc\":[%.0f,%.0f,%.0f],\"fwd\":[%.2f,%.2f,%.2f],\"fov\":%.0f},")
 		TEXT("\"aim\":%s,\"floor_d\":%.0f,\"ceil_d\":%.0f,")
 		TEXT("\"rays\":[%s],\"ledges\":[%s],")
 		TEXT("\"anomalies\":{\"fellThroughFloor\":%s,\"belowKillZ\":%s,\"stuck\":%s},")
-		TEXT("\"actors\":[%s]}"),
+		TEXT("\"actors\":[%s],\"bones\":%s,\"anim\":%s}"),
 		Pos.X, Pos.Y, Pos.Z, Vel.X, Vel.Y, Vel.Z, Vel.Size2D(), Vel.Z, *MoveMode,
 		bGrounded ? TEXT("true") : TEXT("false"), bFalling ? TEXT("true") : TEXT("false"), bHasInput ? TEXT("true") : TEXT("false"),
 		CamLoc.X, CamLoc.Y, CamLoc.Z, CamFwd.X, CamFwd.Y, CamFwd.Z, FOV,
 		*Aim, bFloor ? FloorHit.Distance : -1.0f, bCeil ? CeilHit.Distance : -1.0f,
 		*FString::Join(Rays, TEXT(",")), *FString::Join(Ledges, TEXT(",")),
 		bFellThrough ? TEXT("true") : TEXT("false"), bBelowKill ? TEXT("true") : TEXT("false"), bStuck ? TEXT("true") : TEXT("false"),
-		*FString::Join(ActorLines, TEXT(",")));
+		*FString::Join(ActorLines, TEXT(",")), *Bones, *Anim);
 }
