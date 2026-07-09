@@ -4,7 +4,7 @@ $ErrorActionPreference = 'SilentlyContinue'
 $repo = Split-Path -Parent $PSScriptRoot
 Set-Location $repo
 # HARD-MIRROR origin/master (build-drive is a slave checkout; merge-pull can silently build stale code).
-git fetch --quiet origin 2>$null
+git fetch origin 2>&1 | Out-Null; $fetchOk = ($LASTEXITCODE -eq 0)
 git reset --hard origin/master 2>$null
 git clean -fd 2>$null
 # Kill any lingering test-runner from a previous cycle - it holds a write-lock on the module DLLs and makes
@@ -24,6 +24,7 @@ $uproj = Join-Path $repo "ProjectEmergence.uproject"
 $blog = Join-Path $repo "Saved\build_last.log"
 & (Join-Path $ue "Engine\Build\BatchFiles\Build.bat") ProjectEmergenceEditor Win64 Development -Project="$uproj" -WaitMutex 2>&1 | Out-File -FilePath $blog -Encoding UTF8
 $compile = ($LASTEXITCODE -eq 0)
+$headSha = (git rev-parse HEAD).Trim()
 $pass = 0; $total = 0; $errtext = ""; $fails = @()
 if (-not $compile) {
   $errlines = Select-String -Path $blog -Pattern "error C\d|error LNK|error MSB|: error|error :" | ForEach-Object { $_.Line.Trim() } | Select-Object -First 30
@@ -46,4 +47,4 @@ if (-not $compile) {
   }
 }
 $score = if (-not $compile) { 0.0 } elseif ($total -gt 0) { [math]::Round($pass / $total, 3) } else { 0.5 }
-(@{ available = $true; compile = $compile; tests_pass = $pass; tests_total = $total; score = $score; build_errors = $errtext; failures = $fails } | ConvertTo-Json -Compress)
+(@{ available = $true; compile = $compile; tests_pass = $pass; tests_total = $total; score = $score; build_errors = $errtext; failures = $fails; head = $headSha; fetch_ok = $fetchOk } | ConvertTo-Json -Compress)
