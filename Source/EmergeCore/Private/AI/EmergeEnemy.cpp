@@ -32,6 +32,9 @@ AEmergeEnemy::AEmergeEnemy()
 		static ConstructorHelpers::FObjectFinder<UAnimSequenceBase> Jog(
 			TEXT("/Game/Characters/Mannequins/Anims/Unarmed/Jog/MF_Unarmed_Jog_Fwd.MF_Unarmed_Jog_Fwd"));
 		if (Jog.Succeeded()) { JogLoop = Jog.Object; }
+		static ConstructorHelpers::FObjectFinder<UAnimSequenceBase> JumpClip(
+			TEXT("/Game/Characters/Mannequins/Anims/Unarmed/Jump/MM_Jump.MM_Jump"));
+		if (JumpClip.Succeeded()) { JumpOneShot = JumpClip.Object; }
 		MeshComp->SetRelativeLocationAndRotation(FVector(0.0f, 0.0f, -88.0f), FRotator(0.0f, -90.0f, 0.0f));
 		// Always evaluate the pose: render-gated anim ticking freezes offscreen/unfocused PIE poses.
 		MeshComp->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
@@ -43,12 +46,23 @@ void AEmergeEnemy::Tick(float DeltaSeconds)
 	Super::Tick(DeltaSeconds);
 	USkeletalMeshComponent* MeshComp = GetMesh();
 	if (!MeshComp) { return; }
+	// Mid-air (traversal hop): let the one-shot jump clip play out instead of looping jog in the air.
+	if (GetCharacterMovement() && !GetCharacterMovement()->IsMovingOnGround()) { return; }
 	const float Spd = GetVelocity().Size2D();
 	UAnimSequenceBase* Want = (Spd > 250.0f) ? JogLoop.Get() : ((Spd > 5.0f) ? WalkLoop.Get() : IdleLoop.Get());
 	if (Want && CurrentLoop != Want)
 	{
 		MeshComp->PlayAnimation(Want, true);
 		CurrentLoop = Want;
+	}
+}
+
+void AEmergeEnemy::PlayHopAnim()
+{
+	if (JumpOneShot && GetMesh())
+	{
+		GetMesh()->PlayAnimation(JumpOneShot, false);
+		CurrentLoop = nullptr;   // force loop reselect on landing
 	}
 }
 

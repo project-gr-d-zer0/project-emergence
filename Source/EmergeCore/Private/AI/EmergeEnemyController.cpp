@@ -1,4 +1,5 @@
 #include "AI/EmergeEnemyController.h"
+#include "AI/EmergeEnemy.h"
 #include "Perception/AIPerceptionComponent.h"
 #include "Perception/AISenseConfig_Sight.h"
 #include "Perception/AISense_Sight.h"
@@ -130,31 +131,67 @@ void AEmergeEnemyController::Tick(float DeltaSeconds)
 
 void AEmergeEnemyController::TryTraversalHop(APawn* Self, float DeltaSeconds)
 {
-	HopCooldown = FMath::Max(0.0f, HopCooldown - DeltaSeconds);
 	ACharacter* SelfChar = Cast<ACharacter>(Self);
-	if (!SelfChar || HopCooldown > 0.0f || GetMoveStatus() != EPathFollowingStatus::Moving) { return; }
+	if (!SelfChar) { return; }
 	UCharacterMovementComponent* Move = SelfChar->GetCharacterMovement();
-	if (!Move || !Move->IsMovingOnGround()) { return; }
+	if (!Move) { return; }
+
+	// Active scripted mantle: drive the capsule up to the obstacle top, then forward-and-down over
+	// it — the same climb-over mechanic the player's ALS mantle performs, without ALS.
+	if (MantleAlpha >= 0.0f)
+	{
+		MantleAlpha = FMath::Min(MantleAlpha + ((MantleDuration > 0.0f) ? DeltaSeconds / MantleDuration : 1.0f), 1.0f);
+		const FVector P = (MantleAlpha < 0.45f)
+			? FMath::Lerp(MantleStart, MantleMid, MantleAlpha / 0.45f)
+			: FMath::Lerp(MantleMid, MantleEnd, (MantleAlpha - 0.45f) / 0.55f);
+		SelfChar->SetActorLocation(P, false);
+		if (MantleAlpha >= 1.0f)
+		{
+			Move->SetMovementMode(MOVE_Walking);
+			Move->Velocity = FVector::ZeroVector;
+			MantleAlpha = -1.0f;
+		}
+		return;
+	}
+
+	HopCooldown = FMath::Max(0.0f, HopCooldown - DeltaSeconds);
+	if (HopCooldown > 0.0f || GetMoveStatus() != EPathFollowingStatus::Moving || !Move->IsMovingOnGround()) { return; }
 
 	// Probe along travel direction (velocity when moving, facing when pinned against the obstacle).
 	const FVector Vel = SelfChar->GetVelocity();
 	FVector Ahead = (Vel.SizeSquared2D() > 400.0f) ? FVector(Vel.X, Vel.Y, 0.0f).GetSafeNormal()
 	                                               : FVector(SelfChar->GetActorForwardVector().X, SelfChar->GetActorForwardVector().Y, 0.0f).GetSafeNormal();
 	if (Ahead.IsNearlyZero()) { return; }
-	const FVector Feet = SelfChar->GetActorLocation()
-		- FVector(0.0f, 0.0f, SelfChar->GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+	const float HalfH = SelfChar->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	const FVector Feet = SelfChar->GetActorLocation() - FVector(0.0f, 0.0f, HalfH);
 	FCollisionQueryParams QP(SCENE_QUERY_STAT(EmergeHopProbe), false, SelfChar);
 	FHitResult LowHit, HighHit;
 	const bool bLow = GetWorld()->LineTraceSingleByChannel(LowHit,
 		Feet + FVector(0, 0, 45.0f), Feet + FVector(0, 0, 45.0f) + Ahead * HopTriggerDist, ECC_Visibility, QP);
 	const bool bHigh = GetWorld()->LineTraceSingleByChannel(HighHit,
 		Feet + FVector(0, 0, HopClearHeightUu + 15.0f), Feet + FVector(0, 0, HopClearHeightUu + 15.0f) + Ahead * (HopTriggerDist + 60.0f), ECC_Visibility, QP);
-	if (bLow && Move->IsWalkable(LowHit)) { return; }   // ramp/stair, not a hop target
+	if (bLow && Move->IsWalkable(LowHit)) { return; }   // ramp/stair, not a mantle target
 	const float LowDist = bLow ? LowHit.Distance : -1.0f;
 	if (UEmergeHop::ShouldHop(LowDist, HopTriggerDist, !bHigh, true))
 	{
-		const float Vz = UEmergeHop::HopVerticalVelocity(HopClearHeightUu, GetWorld()->GetGravityZ(), 20.0f);
-		SelfChar->LaunchCharacter(Ahead * HopForwardSpeed + FVector(0, 0, Vz), true, true);
+		// Obstacle top: downward trace just past the face; landing floor: downward trace beyond it.
+		const FVector TopProbe = LowHit.ImpactPoint + Ahead * 25.0f + FVector(0, 0, HopClearHeightUu);
+		FHitResult TopHit;
+		if (!GetWorld()->LineTraceSingleByChannel(TopHit, TopProbe, TopProbe - FVector(0, 0, HopClearHeightUu + 60.0f), ECC_Visibility, QP))
+		{
+			return;
+		}
+		const FVector BeyondProbe = LowHit.ImpactPoint + Ahead * 190.0f + FVector(0, 0, HopClearHeightUu);
+		FHitResult FloorHit;
+		const bool bFloor = GetWorld()->LineTraceSingleByChannel(FloorHit, BeyondProbe, BeyondProbe - FVector(0, 0, HopClearHeightUu + 400.0f), ECC_Visibility, QP);
+		MantleStart = SelfChar->GetActorLocation();
+		MantleMid = FVector(TopHit.ImpactPoint.X, TopHit.ImpactPoint.Y, TopHit.ImpactPoint.Z + HalfH + 4.0f);
+		MantleEnd = bFloor ? (FloorHit.ImpactPoint + FVector(0, 0, HalfH + 2.0f))
+		                   : (MantleStart + Ahead * 220.0f);
+		Move->SetMovementMode(MOVE_Flying);
+		Move->Velocity = FVector::ZeroVector;
+		MantleAlpha = 0.0f;
+		if (AEmergeEnemy* Enemy = Cast<AEmergeEnemy>(SelfChar)) { Enemy->PlayHopAnim(); }
 		HopCooldown = HopCooldownSeconds;
 		++HopCount;
 	}

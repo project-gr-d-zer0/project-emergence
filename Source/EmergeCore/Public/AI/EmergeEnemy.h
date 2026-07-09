@@ -23,10 +23,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Emerge|Anim")
 	FString GetAnimDebug() const;
 
+	// One-shot jump clip for traversal hops (controller calls this when it launches).
+	void PlayHopAnim();
+
 protected:
 	UPROPERTY(EditAnywhere, Category = "Emerge|Anim") TObjectPtr<UAnimSequenceBase> IdleLoop;
 	UPROPERTY(EditAnywhere, Category = "Emerge|Anim") TObjectPtr<UAnimSequenceBase> WalkLoop;
 	UPROPERTY(EditAnywhere, Category = "Emerge|Anim") TObjectPtr<UAnimSequenceBase> JogLoop;
+	UPROPERTY(EditAnywhere, Category = "Emerge|Anim") TObjectPtr<UAnimSequenceBase> JumpOneShot;
 
 private:
 	TObjectPtr<UAnimSequenceBase> CurrentLoop;

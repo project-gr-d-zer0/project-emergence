@@ -52,12 +52,11 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float CornerFullDeg = 180.0f;   // deg/s: at/above = MinScale
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float CornerMinScale = 0.65f;
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float CornerRecoverSeconds = 0.7f;  // dip hold: juke opens a real gap
-	// Traversal hop (plain-ACharacter zombie has no ALS mantle): knee-blocked + head-clear ahead -> parabolic hop.
-	// Tuned for the pinned-at-wall case (measured: 300 fwd smacked the face at h~50 and bounced 15x):
-	// slower forward = more rise before the face; capsule reaches the face at h~85-126 > 70uu walls.
+	// Traversal mantle (plain-ACharacter zombie, same MECHANIC as the player's ALS mantle):
+	// knee-blocked + head-clear ahead -> scripted climb up-and-over (a launch read as a super-jump).
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float HopTriggerDist = 90.0f;
-	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float HopClearHeightUu = 180.0f;   // launch apex target
-	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float HopForwardSpeed = 220.0f;
+	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float HopClearHeightUu = 140.0f;   // max mantleable band
+	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float MantleDuration = 0.8f;       // climb time
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float HopCooldownSeconds = 1.2f;
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float GiveUpSeconds = 15.0f;
 
@@ -74,7 +73,11 @@ private:
 	float CornerScale = 1.0f;   // last applied cornering speed scale (telemetry)
 	FVector2D PrevHeading = FVector2D::ZeroVector;
 	float HopCooldown = 0.0f;
-	int32 HopCount = 0;         // telemetry
+	int32 HopCount = 0;         // telemetry (mantles performed; JSON key stays "hops")
+	FVector MantleStart = FVector::ZeroVector;
+	FVector MantleMid = FVector::ZeroVector;
+	FVector MantleEnd = FVector::ZeroVector;
+	float MantleAlpha = -1.0f;  // <0 = inactive
 	void UpdateCorneringScale(const APawn* Self, float DeltaSeconds);
 	void TryTraversalHop(APawn* Self, float DeltaSeconds);
 	void SetSpeed(float Speed);
