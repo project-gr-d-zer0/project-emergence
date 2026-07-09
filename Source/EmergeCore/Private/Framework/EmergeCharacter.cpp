@@ -95,6 +95,9 @@ void AEmergeCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 	PlayerInputComponent->BindAction(TEXT("Jump"), IE_Released, this, &ACharacter::StopJumping);
 	PlayerInputComponent->BindAction(TEXT("Sprint"), IE_Pressed, this, &AEmergeCharacter::SprintPressed);
 	PlayerInputComponent->BindAction(TEXT("Sprint"), IE_Released, this, &AEmergeCharacter::SprintReleased);
+	PlayerInputComponent->BindAction(TEXT("Crouch"), IE_Pressed, this, &AEmergeCharacter::ToggleCrouch);
+	PlayerInputComponent->BindAction(TEXT("Aim"), IE_Pressed, this, &AEmergeCharacter::AimPressed);
+	PlayerInputComponent->BindAction(TEXT("Aim"), IE_Released, this, &AEmergeCharacter::AimReleased);
 }
 
 void AEmergeCharacter::MoveForward(float Value)
@@ -134,4 +137,22 @@ void AEmergeCharacter::SprintPressed()
 void AEmergeCharacter::SprintReleased()
 {
 	bWantsToSprint = false;
+}
+
+void AEmergeCharacter::ToggleCrouch()
+{
+	bCrouched = !bCrouched;
+	SetDesiredStance(bCrouched ? AlsStanceTags::Crouching : AlsStanceTags::Standing);
+}
+
+void AEmergeCharacter::AimPressed()
+{
+	SetDesiredAiming(true);
+	SetDesiredRotationMode(AlsRotationModeTags::Aiming);
+}
+
+void AEmergeCharacter::AimReleased()
+{
+	SetDesiredAiming(false);
+	SetDesiredRotationMode(AlsRotationModeTags::VelocityDirection);
 }

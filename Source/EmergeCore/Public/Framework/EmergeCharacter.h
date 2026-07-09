@@ -57,4 +57,10 @@ protected:
 	void LookUpPitch(float Value);
 	void SprintPressed();
 	void SprintReleased();
+	void ToggleCrouch();
+	void AimPressed();
+	void AimReleased();
+
+	// Local crouch toggle state (ALS stance is driven by SetDesiredStance).
+	bool bCrouched = false;
 };
