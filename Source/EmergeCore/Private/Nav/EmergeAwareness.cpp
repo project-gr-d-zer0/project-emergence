@@ -9,6 +9,16 @@ float UEmergeAwareness::FillRate(float Dist, float MaxDist, bool bHasLineOfSight
 	return 1.0f - FMath::Clamp(Dist / MaxDist, 0.0f, 1.0f);
 }
 
+float UEmergeAwareness::FillRateCurved(float Dist, float MaxDist, float Exponent, bool bHasLineOfSight)
+{
+	if (!bHasLineOfSight || MaxDist <= 0.0f || Dist >= MaxDist)
+	{
+		return 0.0f;
+	}
+	const float Proximity = 1.0f - FMath::Clamp(Dist / MaxDist, 0.0f, 1.0f);
+	return FMath::Pow(Proximity, FMath::Max(Exponent, 0.1f));
+}
+
 float UEmergeAwareness::Accumulate(float Current, float FillRate, float DtSeconds)
 {
 	return FMath::Clamp(Current + FillRate * FMath::Max(0.0f, DtSeconds), 0.0f, 1.0f);

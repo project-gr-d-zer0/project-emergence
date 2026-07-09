@@ -14,6 +14,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Nav|Awareness")
 	static float FillRate(float Dist, float MaxDist, bool bHasLineOfSight);
 
+	// Curved fill rate: proximity^Exponent ramp for non-linear "slow identify" pacing.
+	UFUNCTION(BlueprintCallable, Category = "Nav|Awareness")
+	static float FillRateCurved(float Dist, float MaxDist, float Exponent, bool bHasLineOfSight);
+
 	// Accumulates Current by FillRate * DtSeconds, clamped to [0,1].
 	UFUNCTION(BlueprintCallable, Category = "Nav|Awareness")
 	static float Accumulate(float Current, float FillRate, float DtSeconds);
