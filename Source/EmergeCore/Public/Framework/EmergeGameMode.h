@@ -11,4 +11,8 @@ class EMERGECORE_API AEmergeGameMode : public AGameModeBase
 	GENERATED_BODY()
 public:
 	AEmergeGameMode();
+
+protected:
+	virtual void BeginPlay() override;
+	void EnsureNavmesh();
 };
