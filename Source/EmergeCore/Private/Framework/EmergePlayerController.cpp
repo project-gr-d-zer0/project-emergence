@@ -6,3 +6,8 @@ void AEmergePlayerController::BeginPlay()
 	SetInputMode(FInputModeGameOnly());
 	bShowMouseCursor = false;
 }
+
+FString AEmergePlayerController::DebugConsole(const FString& Command)
+{
+	return ConsoleCommand(Command, true);
+}
