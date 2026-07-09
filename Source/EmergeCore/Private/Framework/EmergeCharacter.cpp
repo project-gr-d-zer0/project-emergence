@@ -362,8 +362,8 @@ FString AEmergeCharacter::SenseEnvironment(float Radius)
 				if (UAnimMontage* M = AI->GetCurrentActiveMontage()) { Montage = M->GetName(); MPos = AI->Montage_GetPosition(M); }
 			}
 		}
-		AnimJson = FString::Printf(TEXT("{\"action\":\"%s\",\"gait\":\"%s\",\"montage\":\"%s\",\"montagePos\":%.2f}"),
-			*Action, *GetGait().GetTagName().ToString(), *Montage, MPos);
+		AnimJson = FString::Printf(TEXT("{\"action\":\"%s\",\"gait\":\"%s\",\"stance\":\"%s\",\"rotmode\":\"%s\",\"overlay\":\"%s\",\"montage\":\"%s\",\"montagePos\":%.2f}"),
+			*Action, *GetGait().GetTagName().ToString(), *GetStance().GetTagName().ToString(), *GetRotationMode().GetTagName().ToString(), *GetOverlayMode().GetTagName().ToString(), *Montage, MPos);
 	}
 
 	struct FNear { float Dist; FString Line; };
