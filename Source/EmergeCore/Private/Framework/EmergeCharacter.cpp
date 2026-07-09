@@ -9,6 +9,7 @@
 #include "Combat/EmergeStagger.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "EngineUtils.h"
+#include "Engine/StaticMeshActor.h"
 #include "Camera/PlayerCameraManager.h"
 #include "GameFramework/Character.h"
 #include "HAL/IConsoleManager.h"
