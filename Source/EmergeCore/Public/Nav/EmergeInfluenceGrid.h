@@ -30,8 +30,8 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Emerge|Influence") int32 Dims = 100;
 	UPROPERTY(EditAnywhere, Category = "Emerge|Influence") float CellSize = 300.0f;
 	UPROPERTY(EditAnywhere, Category = "Emerge|Influence") FVector Center = FVector::ZeroVector;
-	UPROPERTY(EditAnywhere, Category = "Emerge|Influence") float Tau = 8.0f;          // decay time-constant (s)
-	UPROPERTY(EditAnywhere, Category = "Emerge|Influence") float DiffuseRate = 0.12f; // spatial blur per tick
+	UPROPERTY(EditAnywhere, Category = "Emerge|Influence") float Tau = 12.0f;         // decay time-constant (s)
+	UPROPERTY(EditAnywhere, Category = "Emerge|Influence") float DiffuseRate = 0.03f; // spatial blur per tick (0.12@60fps emptied the belief in ~6s — measured 2026-07-09)
 	UPROPERTY(EditAnywhere, Category = "Emerge|Influence") float DispersalFloor = 0.05f;
 
 private:

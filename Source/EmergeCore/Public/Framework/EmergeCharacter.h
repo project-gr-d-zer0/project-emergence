@@ -5,6 +5,9 @@
 
 EMERGECORE_API DECLARE_LOG_CATEGORY_EXTERN(LogEmergeTelemetry, Log, All);
 
+enum class EAlsMantlingType : uint8;
+class UAlsMantlingSettings;
+
 class UEmergeVitalsComponent;
 class UEmergeStaggerComponent;
 class UEmergeStaminaComponent;
@@ -41,6 +44,16 @@ public:
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void CalcCamera(float DeltaTime, struct FMinimalViewInfo& OutResult) override;
 
+	// ALS asks the character which mantling settings to use; the example BP assigns these in-editor,
+	// our C++ reparent must provide them or StartMantling ensures (caught live 2026-07-09).
+	virtual UAlsMantlingSettings* SelectMantlingSettings_Implementation(EAlsMantlingType MantlingType) override;
+
+protected:
+	UPROPERTY() TObjectPtr<UAlsMantlingSettings> MantlingSettingsHigh;
+	UPROPERTY() TObjectPtr<UAlsMantlingSettings> MantlingSettingsLow;
+
+public:
+
 	// Smart pathing: Claude picks a target, the engine paths + this follows it (no AIController).
 	UFUNCTION(BlueprintCallable, Category = "Emerge|Nav")
 	bool NavigateTo(FVector Destination);
@@ -49,10 +62,24 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Emerge|Nav")
 	FString GetNavProgress();
 
+	// Programmatic sprint (RC/AI callable; the ALS input path needs a held key we can't hold remotely).
+	UFUNCTION(BlueprintCallable, Category = "Emerge|Nav")
+	void SetSprinting(bool bSprint);
+
+	// Dynamic escape: sample a fan of flee candidates away from the threat (flee kernel direction),
+	// score each by real path reachability + escape distance gained - detour penalty, sprint to the best.
+	UFUNCTION(BlueprintCallable, Category = "Emerge|Nav")
+	bool FleeFrom(FVector ThreatPos);
+
 	// Structured spatial snapshot for autonomous testing: player movement, game camera POV,
 	// LIDAR rays (walls/floor/ceiling distances + hit names), and nearby actors. Read via Remote Control.
 	UFUNCTION(BlueprintCallable, Category = "Emerge|Sensor")
 	FString SenseEnvironment(float Radius = 4000.0f);
+
+	// World-level telemetry (AI census, navmesh, influence belief, NPC anomalies) forwarded from
+	// UEmergeWorldSense — kept on the character because this is the proven RC object path.
+	UFUNCTION(BlueprintCallable, Category = "Emerge|Sensor")
+	FString SenseWorld();
 
 private:
 	// Persistent world-memory occupancy grid (2m cells): key=packed(cx,cy), val 1=free 2=obstacle.
@@ -67,8 +94,10 @@ private:
 	FString NavState = TEXT("idle");
 	FGameplayTag PrevRotationMode;
 	bool bNavRotationOverridden = false;
+	bool bFleeing = false;   // FleeFrom engaged sprint; RestoreNavFacing releases it
 	float NavTurnErrorDeg = 0.0f;
 	int32 NavRepathCount = 0;
+	int32 NavVaultCount = 0;   // auto-vaults triggered while path-following (stuck -> ALS mantle)
 	float NavLastDist = -1.0f;
 	bool bNavMakingProgress = false;
 	bool ComputePathTo(FVector Destination);

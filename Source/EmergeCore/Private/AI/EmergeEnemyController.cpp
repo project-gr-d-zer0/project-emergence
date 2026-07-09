@@ -9,6 +9,7 @@
 #include "GameFramework/Pawn.h"
 #include "Kismet/GameplayStatics.h"
 #include "Nav/EmergeAwareness.h"
+#include "Nav/EmergeInfluenceGrid.h"
 
 AEmergeEnemyController::AEmergeEnemyController(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer.SetDefaultSubobjectClass<UCrowdFollowingComponent>(TEXT("PathFollowingComponent")))
@@ -36,6 +37,7 @@ void AEmergeEnemyController::BeginPlay()
 		Perception->OnTargetPerceptionUpdated.AddDynamic(this, &AEmergeEnemyController::OnPerception);
 	}
 	Target = UGameplayStatics::GetPlayerPawn(this, 0);
+	Influence = GetWorld() ? GetWorld()->GetSubsystem<UEmergeInfluenceGrid>() : nullptr;
 	SetSpeed(ShambleSpeed);
 }
 
@@ -54,12 +56,19 @@ void AEmergeEnemyController::Tick(float DeltaSeconds)
 
 	const float Dist = FVector::Dist(Self->GetActorLocation(), Target->GetActorLocation());
 
-	// Graduated "slow identify" via the nav-awareness kernel: fill when visible (faster when close), decay otherwise.
-	if (bTargetVisible)
+	// Point-blank presence: within PresenceRadius with clear line-of-sight counts as seen even
+	// outside the vision cone (measured 2026-07-09: enemy gave up standing 69uu from the player
+	// because it arrived facing past him). Zombies sense you at arm's length.
+	const bool bSeen = bTargetVisible || (Dist < PresenceRadius && LineOfSightTo(Target.Get()));
+
+	// Graduated "slow identify" via the nav-awareness kernel: curved ramp fills when visible
+	// (quick up close, much slower at range), decays otherwise. Sightings stamp the shared belief grid.
+	if (bSeen)
 	{
-		const float Rate = UEmergeAwareness::FillRate(Dist, SightRadius, true) * FillBaseRate;
+		const float Rate = UEmergeAwareness::FillRateCurved(Dist, SightRadius, RampExponent, true) * FillBaseRate;
 		Awareness = UEmergeAwareness::Accumulate(Awareness, Rate, DeltaSeconds);
 		LastKnownPosition = Target->GetActorLocation();
+		if (Influence) { Influence->Stamp(LastKnownPosition, Awareness); }
 	}
 	else
 	{
@@ -68,7 +77,7 @@ void AEmergeEnemyController::Tick(float DeltaSeconds)
 
 	const int32 StateCode = UEmergeAwareness::StateFor(Awareness);   // 0 Unaware,1 Suspicious,2 Alerted,3 Chasing
 
-	if (Awareness >= 1.0f && bTargetVisible)
+	if (Awareness >= 1.0f && bSeen)
 	{
 		AIState = EEmergeAIState::Chasing;
 		SearchTime = 0.0f;
@@ -77,16 +86,25 @@ void AEmergeEnemyController::Tick(float DeltaSeconds)
 	}
 	else if (AIState == EEmergeAIState::Chasing || AIState == EEmergeAIState::Searching)
 	{
-		// Lost the target (out of sight or awareness fell): hunt the last-known spot, then give up.
+		// Lost the target: hunt the shared belief peak (drifts + spreads as info ages) instead of a
+		// frozen last-known point; give up when the belief disperses or the timer runs out.
+		if (AIState == EEmergeAIState::Chasing)
+		{
+			StopMovement();            // redirect from actor-chase to the belief peak immediately
+			bIssuedMove = false;
+		}
 		AIState = EEmergeAIState::Searching;
 		SetSpeed(ShambleSpeed);
 		SearchTime += DeltaSeconds;
-		EnsureMoveToLocation(LastKnownPosition, 100.0f);
-		if (SearchTime >= GiveUpSeconds || Awareness <= 0.0f)
+		const bool bBeliefAlive = Influence && !Influence->IsDispersed();
+		EnsureMoveToLocation(bBeliefAlive ? Influence->PeakPosition() : LastKnownPosition, 100.0f);
+		const bool bBeliefGone = Influence ? Influence->IsDispersed() : (Awareness <= 0.0f);
+		if (SearchTime >= GiveUpSeconds || bBeliefGone)
 		{
 			AIState = EEmergeAIState::Unaware;
 			SearchTime = 0.0f;
 			StopMovement();
+			bIssuedMove = false;
 		}
 	}
 	else if (StateCode >= 1)
@@ -108,14 +126,21 @@ void AEmergeEnemyController::EnsureMoveToActor(AActor* Goal)
 	if (GetMoveStatus() != EPathFollowingStatus::Moving)
 	{
 		MoveToActor(Goal, 100.0f, true, true, false, nullptr, true);
+		bIssuedMove = false;   // actor-move: location drift tracking does not apply
 	}
 }
 
 void AEmergeEnemyController::EnsureMoveToLocation(const FVector& Dest, float Accept)
 {
-	if (GetMoveStatus() != EPathFollowingStatus::Moving)
+	// Re-issue when idle OR when the destination has drifted (the belief peak moves as it diffuses).
+	// Project to navmesh: grid peaks carry a synthetic Z.
+	const bool bMoving = GetMoveStatus() == EPathFollowingStatus::Moving;
+	const bool bDrifted = bMoving && bIssuedMove && FVector::Dist2D(Dest, IssuedMoveDest) > 200.0f;
+	if (!bMoving || bDrifted)
 	{
-		MoveToLocation(Dest, Accept, true, true, false, false, nullptr, true);
+		MoveToLocation(Dest, Accept, true, true, true, false, nullptr, true);
+		IssuedMoveDest = Dest;
+		bIssuedMove = true;
 	}
 }
 
@@ -138,8 +163,15 @@ FString AEmergeEnemyController::GetAIStatus()
 {
 	static const TCHAR* Names[] = { TEXT("Unaware"), TEXT("Suspicious"), TEXT("Investigating"), TEXT("Chasing"), TEXT("Searching") };
 	const int32 Idx = FMath::Clamp((int32)AIState, 0, 4);
+	FString GridJson = TEXT("null");
+	if (Influence)
+	{
+		const FVector Peak = Influence->PeakPosition();
+		GridJson = FString::Printf(TEXT("{\"peak\":[%.0f,%.0f],\"peakConf\":%.3f,\"dispersed\":%s}"),
+			Peak.X, Peak.Y, Influence->PeakConfidence(), Influence->IsDispersed() ? TEXT("true") : TEXT("false"));
+	}
 	return FString::Printf(
-		TEXT("{\"state\":\"%s\",\"awareness\":%.2f,\"targetVisible\":%s,\"dist\":%.0f,\"lastKnown\":[%.0f,%.0f],\"searchTime\":%.1f}"),
+		TEXT("{\"state\":\"%s\",\"awareness\":%.2f,\"targetVisible\":%s,\"dist\":%.0f,\"lastKnown\":[%.0f,%.0f],\"searchTime\":%.1f,\"grid\":%s}"),
 		Names[Idx], Awareness, bTargetVisible ? TEXT("true") : TEXT("false"),
-		GetDistanceToTarget(), LastKnownPosition.X, LastKnownPosition.Y, SearchTime);
+		GetDistanceToTarget(), LastKnownPosition.X, LastKnownPosition.Y, SearchTime, *GridJson);
 }

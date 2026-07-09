@@ -17,6 +17,12 @@
 #include "NavigationPath.h"
 #include "NavigationInvokerComponent.h"
 #include "Nav/EmergeNavRecovery.h"
+#include "Nav/EmergeFlee.h"
+#include "Sensor/EmergeWorldSense.h"
+#include "AlsCameraComponent.h"
+#include "AlsCameraSettings.h"
+#include "Settings/AlsMantlingSettings.h"
+#include "Animation/AnimMontage.h"
 #include "Nav/EmergeNavEta.h"
 #include "Nav/EmergeNavPathLen.h"
 #include "GameFramework/WorldSettings.h"
@@ -77,6 +83,38 @@ AEmergeCharacter::AEmergeCharacter()
 	static ConstructorHelpers::FObjectFinder<UAlsMovementSettings> AlsMovement(
 		TEXT("/ALS/ALS/Data/Character/Movement/MS_Als_Normal.MS_Als_Normal"));
 	if (AlsMovement.Succeeded()) { MovementSettings = AlsMovement.Object; }
+
+	// Mantling settings (the ALS example BP assigns these in-editor; without them StartMantling ensures).
+	MantlingSettingsHigh = CreateDefaultSubobject<UAlsMantlingSettings>(TEXT("MantlingSettingsHigh"));
+	MantlingSettingsLow = CreateDefaultSubobject<UAlsMantlingSettings>(TEXT("MantlingSettingsLow"));
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> MantleHigh(
+		TEXT("/ALS/ALS/Animations/Actions/Mantle/AM_Als_Mantle_High.AM_Als_Mantle_High"));
+	if (MantleHigh.Succeeded()) { MantlingSettingsHigh->Montage = MantleHigh.Object; }
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> MantleLow(
+		TEXT("/ALS/ALS/Animations/Actions/Mantle/AM_Als_Mantle_Low.AM_Als_Mantle_Low"));
+	if (MantleLow.Succeeded()) { MantlingSettingsLow->Montage = MantleLow.Object; }
+
+	// Configure the inherited ALS camera rig (mesh + camera anim + settings) so its BeginPlay
+	// ensures pass — these were the two error dialogs at PIE start. The actual view still comes
+	// from FollowCamera via our CalcCamera override. Settings is a protected UPROPERTY -> reflection.
+	if (Camera)
+	{
+		static ConstructorHelpers::FObjectFinder<USkeletalMesh> CamMesh(
+			TEXT("/ALS/ALSCamera/SKM_Als_Camera.SKM_Als_Camera"));
+		if (CamMesh.Succeeded()) { Camera->SetSkeletalMesh(CamMesh.Object); }
+		static ConstructorHelpers::FClassFinder<UAnimInstance> CamAnim(TEXT("/ALS/ALSCamera/AB_Als_Camera"));
+		if (CamAnim.Succeeded()) { Camera->SetAnimInstanceClass(CamAnim.Class); }
+		static ConstructorHelpers::FObjectFinder<UAlsCameraSettings> CamSettings(
+			TEXT("/ALS/ALSCamera/Data/CS_Als_Default.CS_Als_Default"));
+		if (CamSettings.Succeeded())
+		{
+			if (FObjectProperty* SettingsProp = FindFProperty<FObjectProperty>(
+				UAlsCameraComponent::StaticClass(), TEXT("Settings")))
+			{
+				SettingsProp->SetObjectPropertyValue_InContainer(Camera, CamSettings.Object);
+			}
+		}
+	}
 
 	// Enhanced Input: assign the ALS mapping context + action assets (inherited protected members).
 	static ConstructorHelpers::FObjectFinder<UInputMappingContext> IMC(
@@ -142,6 +180,16 @@ void AEmergeCharacter::Tick(float DeltaSeconds)
 			bNavMakingProgress = (NavLastDist < 0.0f) ? true : UEmergeNavEta::MakingProgress(NavLastDist, CurDist, 5.0f);
 			NavLastDist = CurDist;
 			NavStuckTime = (GetVelocity().Size2D() < 10.0f) ? NavStuckTime + DeltaSeconds : 0.0f;
+			// Auto-vault: briefly stuck against something while pathing -> try an ALS mantle before
+			// the repath ladder (minor obstacles snag the follower; ALS validates the surface itself).
+			if (NavStuckTime > 0.5f && NavStuckTime <= 3.0f && GetLocomotionAction() != AlsLocomotionActionTags::Mantling)
+			{
+				if (IsMantlingAllowedToStart() && StartMantling())
+				{
+					++NavVaultCount;
+					NavStuckTime = 0.0f;
+				}
+			}
 			if (NavStuckTime > 3.0f)
 			{
 				const int32 Action = UEmergeNavRecovery::DecideRecovery(NavStuckTime, NavRepathCount, 3.0f, 2);
@@ -194,6 +242,12 @@ void AEmergeCharacter::CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult)
 		return;
 	}
 	Super::CalcCamera(DeltaTime, OutResult);
+}
+
+FString AEmergeCharacter::SenseWorld()
+{
+	UEmergeWorldSense* WorldSense = GetWorld() ? GetWorld()->GetSubsystem<UEmergeWorldSense>() : nullptr;
+	return WorldSense ? WorldSense->SenseWorld() : TEXT("{\"error\":\"no world sense\"}");
 }
 
 FString AEmergeCharacter::SenseEnvironment(float Radius)
@@ -486,9 +540,9 @@ FString AEmergeCharacter::GetNavProgress()
 	const float PathRem = bNavigating ? UEmergeNavPathLen::RemainingLength(NavPath, NavIdx, Cur) : 0.0f;
 	const float Eta = UEmergeNavEta::EtaSeconds(PathRem, GetVelocity().Size2D());
 	return FString::Printf(
-		TEXT("{\"state\":\"%s\",\"navigating\":%s,\"waypoint\":%d,\"total\":%d,\"distRemaining\":%.0f,\"pathRemaining\":%.0f,\"etaSeconds\":%.1f,\"makingProgress\":%s,\"repaths\":%d,\"stuckTime\":%.1f,\"turnErrDeg\":%.0f}"),
+		TEXT("{\"state\":\"%s\",\"navigating\":%s,\"waypoint\":%d,\"total\":%d,\"distRemaining\":%.0f,\"pathRemaining\":%.0f,\"etaSeconds\":%.1f,\"makingProgress\":%s,\"repaths\":%d,\"vaults\":%d,\"stuckTime\":%.1f,\"turnErrDeg\":%.0f}"),
 		*NavState, bNavigating ? TEXT("true") : TEXT("false"), NavIdx, NavPath.Num(), DistRem, PathRem, Eta,
-		bNavMakingProgress ? TEXT("true") : TEXT("false"), NavRepathCount, NavStuckTime, NavTurnErrorDeg);
+		bNavMakingProgress ? TEXT("true") : TEXT("false"), NavRepathCount, NavVaultCount, NavStuckTime, NavTurnErrorDeg);
 }
 
 void AEmergeCharacter::RestoreNavFacing()
@@ -498,4 +552,57 @@ void AEmergeCharacter::RestoreNavFacing()
 		SetDesiredRotationMode(PrevRotationMode);
 		bNavRotationOverridden = false;
 	}
+	if (bFleeing)
+	{
+		SetSprinting(false);
+		bFleeing = false;
+	}
+}
+
+UAlsMantlingSettings* AEmergeCharacter::SelectMantlingSettings_Implementation(EAlsMantlingType MantlingType)
+{
+	return (MantlingType == EAlsMantlingType::Low) ? MantlingSettingsLow : MantlingSettingsHigh;
+}
+
+void AEmergeCharacter::SetSprinting(bool bSprint)
+{
+	SetDesiredGait(bSprint ? AlsGaitTags::Sprinting : AlsGaitTags::Running);
+}
+
+bool AEmergeCharacter::FleeFrom(FVector ThreatPos)
+{
+	UWorld* World = GetWorld();
+	UNavigationSystemV1* Nav = World ? FNavigationSystem::GetCurrent<UNavigationSystemV1>(World) : nullptr;
+	if (!Nav) { return false; }
+
+	const FVector Self = GetActorLocation();
+	const FVector Away = UEmergeFlee::FleeDirection(Self, ThreatPos);
+
+	// Fan of candidates around the pure away-direction; score = escape distance actually gained
+	// minus a detour penalty from the real path length (a straight-line pick could route back
+	// past the threat). Only reachable, complete paths qualify.
+	float BestScore = -FLT_MAX;
+	FVector BestGoal = FVector::ZeroVector;
+	bool bFound = false;
+	static constexpr float FleeDist = 6000.0f;
+	for (int32 Step = -3; Step <= 3; ++Step)
+	{
+		const FVector Dir = Away.RotateAngleAxis(Step * 25.0f, FVector::UpVector);
+		FNavLocation Projected;
+		if (!Nav->ProjectPointToNavigation(Self + Dir * FleeDist, Projected, FVector(500.0f, 500.0f, 1000.0f)))
+		{
+			continue;
+		}
+		UNavigationPath* Path = UNavigationSystemV1::FindPathToLocationSynchronously(World, Self, Projected.Location);
+		if (!Path || !Path->IsValid() || Path->IsPartial()) { continue; }
+		const float EscapeGain = FVector::Dist2D(Projected.Location, ThreatPos) - FVector::Dist2D(Self, ThreatPos);
+		const float Score = UEmergeFlee::ScoreFleeCandidate(
+			EscapeGain, Path->GetPathLength(), FVector::Dist2D(Self, Projected.Location), 1500.0f);
+		if (Score > BestScore) { BestScore = Score; BestGoal = Projected.Location; bFound = true; }
+	}
+	if (!bFound) { return false; }
+	if (!NavigateTo(BestGoal)) { return false; }
+	bFleeing = true;
+	SetSprinting(true);
+	return true;
 }
