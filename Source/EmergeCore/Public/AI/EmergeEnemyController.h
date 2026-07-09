@@ -42,8 +42,16 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float FillBaseRate = 0.4f;
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float RampExponent = 1.5f;  // >1 = slower identify at range (curved ramp)
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float DecayRate = 0.25f;
-	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float ChaseSpeed = 450.0f;
+	// Research-tuned (2026-07-09): between player run (375) and sprint (640) — sprint is the escape
+	// verb, but only while stamina lasts; the cornering penalty is the juke/parkour escape margin.
+	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float ChaseSpeed = 560.0f;
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float ShambleSpeed = 150.0f;
+	// Cornering penalty inputs are HEADING SWEEP RATES (deg/sec of velocity-direction change):
+	// facing-vs-velocity error never exceeded ~20 deg on an AI pawn (measured), rates are the real signal.
+	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float CornerStartDeg = 60.0f;   // deg/s: below = full speed
+	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float CornerFullDeg = 180.0f;   // deg/s: at/above = MinScale
+	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float CornerMinScale = 0.65f;
+	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float CornerRecoverSeconds = 0.7f;  // dip hold: juke opens a real gap
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float GiveUpSeconds = 15.0f;
 
 	UFUNCTION() void OnPerception(AActor* Actor, FAIStimulus Stimulus);
@@ -56,6 +64,9 @@ private:
 	float SearchTime = 0.0f;
 	FVector IssuedMoveDest = FVector::ZeroVector;
 	bool bIssuedMove = false;
+	float CornerScale = 1.0f;   // last applied cornering speed scale (telemetry)
+	FVector2D PrevHeading = FVector2D::ZeroVector;
+	void UpdateCorneringScale(const APawn* Self, float DeltaSeconds);
 	void SetSpeed(float Speed);
 	void EnsureMoveToActor(AActor* Goal);
 	void EnsureMoveToLocation(const FVector& Dest, float Accept);

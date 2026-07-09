@@ -9,6 +9,7 @@
 #include "GameFramework/Pawn.h"
 #include "Kismet/GameplayStatics.h"
 #include "Nav/EmergeAwareness.h"
+#include "Nav/EmergeCornering.h"
 #include "Nav/EmergeInfluenceGrid.h"
 
 AEmergeEnemyController::AEmergeEnemyController(const FObjectInitializer& ObjectInitializer)
@@ -81,7 +82,9 @@ void AEmergeEnemyController::Tick(float DeltaSeconds)
 	{
 		AIState = EEmergeAIState::Chasing;
 		SearchTime = 0.0f;
-		SetSpeed(ChaseSpeed);
+		// Cornering penalty: slow while the heading sweeps hard (the player's juke/parkour escape margin).
+		UpdateCorneringScale(Self, DeltaSeconds);
+		SetSpeed(ChaseSpeed * CornerScale);
 		EnsureMoveToActor(Target.Get());
 	}
 	else if (AIState == EEmergeAIState::Chasing || AIState == EEmergeAIState::Searching)
@@ -144,6 +147,31 @@ void AEmergeEnemyController::EnsureMoveToLocation(const FVector& Dest, float Acc
 	}
 }
 
+void AEmergeEnemyController::UpdateCorneringScale(const APawn* Self, float DeltaSeconds)
+{
+	const FVector Vel = Self->GetVelocity();
+	// Recover toward full speed; a fresh hard sweep can always pull the scale down instantly.
+	const float Recovered = (CornerRecoverSeconds > 0.0f)
+		? FMath::Lerp(CornerScale, 1.0f, FMath::Clamp(DeltaSeconds / CornerRecoverSeconds, 0.0f, 1.0f))
+		: 1.0f;
+	if (Vel.SizeSquared2D() < 100.0f)
+	{
+		PrevHeading = FVector2D::ZeroVector;
+		CornerScale = Recovered;
+		return;
+	}
+	const FVector2D Heading = FVector2D(Vel.X, Vel.Y).GetSafeNormal();
+	float Instant = 1.0f;
+	if (!PrevHeading.IsNearlyZero() && DeltaSeconds > 0.0f)
+	{
+		const float Dot = FMath::Clamp(FVector2D::DotProduct(Heading, PrevHeading), -1.0f, 1.0f);
+		const float SweepDegPerSec = FMath::RadiansToDegrees(FMath::Acos(Dot)) / DeltaSeconds;
+		Instant = UEmergeCornering::SpeedScale(SweepDegPerSec, CornerStartDeg, CornerFullDeg, CornerMinScale);
+	}
+	PrevHeading = Heading;
+	CornerScale = FMath::Min(Instant, Recovered);
+}
+
 void AEmergeEnemyController::SetSpeed(float Speed)
 {
 	if (ACharacter* C = Cast<ACharacter>(GetPawn()))
@@ -171,7 +199,7 @@ FString AEmergeEnemyController::GetAIStatus()
 			Peak.X, Peak.Y, Influence->PeakConfidence(), Influence->IsDispersed() ? TEXT("true") : TEXT("false"));
 	}
 	return FString::Printf(
-		TEXT("{\"state\":\"%s\",\"awareness\":%.2f,\"targetVisible\":%s,\"dist\":%.0f,\"lastKnown\":[%.0f,%.0f],\"searchTime\":%.1f,\"grid\":%s}"),
+		TEXT("{\"state\":\"%s\",\"awareness\":%.2f,\"targetVisible\":%s,\"dist\":%.0f,\"lastKnown\":[%.0f,%.0f],\"searchTime\":%.1f,\"cornerScale\":%.2f,\"grid\":%s}"),
 		Names[Idx], Awareness, bTargetVisible ? TEXT("true") : TEXT("false"),
-		GetDistanceToTarget(), LastKnownPosition.X, LastKnownPosition.Y, SearchTime, *GridJson);
+		GetDistanceToTarget(), LastKnownPosition.X, LastKnownPosition.Y, SearchTime, CornerScale, *GridJson);
 }

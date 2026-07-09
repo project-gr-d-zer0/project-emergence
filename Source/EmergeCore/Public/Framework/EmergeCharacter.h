@@ -63,8 +63,12 @@ public:
 	FString GetNavProgress();
 
 	// Programmatic sprint (RC/AI callable; the ALS input path needs a held key we can't hold remotely).
+	// Denied while sprint-exhausted (stamina economy).
 	UFUNCTION(BlueprintCallable, Category = "Emerge|Nav")
 	void SetSprinting(bool bSprint);
+
+	// Stamina below which sprint stays locked after exhaustion (hysteresis; re-arms at this value).
+	UPROPERTY(EditAnywhere, Category = "Emerge|Stamina") float SprintReArmStamina = 20.0f;
 
 	// Dynamic escape: sample a fan of flee candidates away from the threat (flee kernel direction),
 	// score each by real path reachability + escape distance gained - detour penalty, sprint to the best.
@@ -95,6 +99,7 @@ private:
 	FGameplayTag PrevRotationMode;
 	bool bNavRotationOverridden = false;
 	bool bFleeing = false;   // FleeFrom engaged sprint; RestoreNavFacing releases it
+	bool bSprintExhausted = false;   // stamina hit 0; locked until SprintReArmStamina
 	float NavTurnErrorDeg = 0.0f;
 	int32 NavRepathCount = 0;
 	int32 NavVaultCount = 0;   // auto-vaults triggered while path-following (stuck -> ALS mantle)

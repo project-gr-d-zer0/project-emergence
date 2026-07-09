@@ -23,6 +23,7 @@
 #include "AlsCameraSettings.h"
 #include "Settings/AlsMantlingSettings.h"
 #include "Animation/AnimMontage.h"
+#include "Survival/EmergeSprintGate.h"
 #include "Nav/EmergeNavEta.h"
 #include "Nav/EmergeNavPathLen.h"
 #include "GameFramework/WorldSettings.h"
@@ -145,6 +146,19 @@ AEmergeCharacter::AEmergeCharacter()
 void AEmergeCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);   // ALS example: camera + input-driven locomotion
+
+	// Sprint stamina economy: drain while actually sprinting (heavier load drains faster), regen
+	// otherwise; hitting 0 locks sprint until stamina re-arms (gate kernel = hysteresis, no flapping).
+	if (Stamina)
+	{
+		const bool bSprintingNow = GetGait() == AlsGaitTags::Sprinting && GetVelocity().Size2D() > 10.0f;
+		Stamina->Simulate(DeltaSeconds, bSprintingNow, Inventory ? Inventory->GetLoadTier() : 0);
+		bSprintExhausted = UEmergeSprintGate::UpdateExhausted(Stamina->Stamina, bSprintExhausted, SprintReArmStamina);
+		if (bSprintExhausted && GetDesiredGait() == AlsGaitTags::Sprinting)
+		{
+			SetDesiredGait(AlsGaitTags::Running);   // covers both key-held and programmatic sprint
+		}
+	}
 
 	// Mismatch/glitch timers (proprioception vs outcome).
 	if (UCharacterMovementComponent* MC = GetCharacterMovement())
@@ -540,9 +554,10 @@ FString AEmergeCharacter::GetNavProgress()
 	const float PathRem = bNavigating ? UEmergeNavPathLen::RemainingLength(NavPath, NavIdx, Cur) : 0.0f;
 	const float Eta = UEmergeNavEta::EtaSeconds(PathRem, GetVelocity().Size2D());
 	return FString::Printf(
-		TEXT("{\"state\":\"%s\",\"navigating\":%s,\"waypoint\":%d,\"total\":%d,\"distRemaining\":%.0f,\"pathRemaining\":%.0f,\"etaSeconds\":%.1f,\"makingProgress\":%s,\"repaths\":%d,\"vaults\":%d,\"stuckTime\":%.1f,\"turnErrDeg\":%.0f}"),
+		TEXT("{\"state\":\"%s\",\"navigating\":%s,\"waypoint\":%d,\"total\":%d,\"distRemaining\":%.0f,\"pathRemaining\":%.0f,\"etaSeconds\":%.1f,\"makingProgress\":%s,\"repaths\":%d,\"vaults\":%d,\"stuckTime\":%.1f,\"turnErrDeg\":%.0f,\"stamina\":%.0f,\"sprintExhausted\":%s}"),
 		*NavState, bNavigating ? TEXT("true") : TEXT("false"), NavIdx, NavPath.Num(), DistRem, PathRem, Eta,
-		bNavMakingProgress ? TEXT("true") : TEXT("false"), NavRepathCount, NavVaultCount, NavStuckTime, NavTurnErrorDeg);
+		bNavMakingProgress ? TEXT("true") : TEXT("false"), NavRepathCount, NavVaultCount, NavStuckTime, NavTurnErrorDeg,
+		Stamina ? Stamina->Stamina : -1.0f, bSprintExhausted ? TEXT("true") : TEXT("false"));
 }
 
 void AEmergeCharacter::RestoreNavFacing()
@@ -566,7 +581,7 @@ UAlsMantlingSettings* AEmergeCharacter::SelectMantlingSettings_Implementation(EA
 
 void AEmergeCharacter::SetSprinting(bool bSprint)
 {
-	SetDesiredGait(bSprint ? AlsGaitTags::Sprinting : AlsGaitTags::Running);
+	SetDesiredGait((bSprint && !bSprintExhausted) ? AlsGaitTags::Sprinting : AlsGaitTags::Running);
 }
 
 bool AEmergeCharacter::FleeFrom(FVector ThreatPos)
@@ -576,7 +591,18 @@ bool AEmergeCharacter::FleeFrom(FVector ThreatPos)
 	if (!Nav) { return false; }
 
 	const FVector Self = GetActorLocation();
-	const FVector Away = UEmergeFlee::FleeDirection(Self, ThreatPos);
+	// Flee in the ground plane; a threat at/above our own position (degenerate) must not produce a
+	// vertical away-vector (measured: candidates projected 6000uu into the sky -> all rejected).
+	FVector Away = UEmergeFlee::FleeDirection(Self, ThreatPos);
+	Away.Z = 0.0f;
+	Away = Away.GetSafeNormal();
+	if (Away.IsNearlyZero())
+	{
+		Away = -GetActorForwardVector();
+		Away.Z = 0.0f;
+		Away = Away.GetSafeNormal();
+		if (Away.IsNearlyZero()) { return false; }
+	}
 
 	// Fan of candidates around the pure away-direction; score = escape distance actually gained
 	// minus a detour penalty from the real path length (a straight-line pick could route back
@@ -584,21 +610,27 @@ bool AEmergeCharacter::FleeFrom(FVector ThreatPos)
 	float BestScore = -FLT_MAX;
 	FVector BestGoal = FVector::ZeroVector;
 	bool bFound = false;
-	static constexpr float FleeDist = 6000.0f;
-	for (int32 Step = -3; Step <= 3; ++Step)
+	// Shrinking rings: near the navmesh edge every long candidate projects outside the mesh
+	// (measured at the map border), so fall back to closer rings before giving up.
+	static constexpr float FleeDists[] = { 6000.0f, 3000.0f, 1500.0f };
+	for (const float FleeDist : FleeDists)
 	{
-		const FVector Dir = Away.RotateAngleAxis(Step * 25.0f, FVector::UpVector);
-		FNavLocation Projected;
-		if (!Nav->ProjectPointToNavigation(Self + Dir * FleeDist, Projected, FVector(500.0f, 500.0f, 1000.0f)))
+		for (int32 Step = -3; Step <= 3; ++Step)
 		{
-			continue;
+			const FVector Dir = Away.RotateAngleAxis(Step * 25.0f, FVector::UpVector);
+			FNavLocation Projected;
+			if (!Nav->ProjectPointToNavigation(Self + Dir * FleeDist, Projected, FVector(500.0f, 500.0f, 1000.0f)))
+			{
+				continue;
+			}
+			UNavigationPath* Path = UNavigationSystemV1::FindPathToLocationSynchronously(World, Self, Projected.Location);
+			if (!Path || !Path->IsValid() || Path->IsPartial()) { continue; }
+			const float EscapeGain = FVector::Dist2D(Projected.Location, ThreatPos) - FVector::Dist2D(Self, ThreatPos);
+			const float Score = UEmergeFlee::ScoreFleeCandidate(
+				EscapeGain, Path->GetPathLength(), FVector::Dist2D(Self, Projected.Location), 1500.0f);
+			if (Score > BestScore) { BestScore = Score; BestGoal = Projected.Location; bFound = true; }
 		}
-		UNavigationPath* Path = UNavigationSystemV1::FindPathToLocationSynchronously(World, Self, Projected.Location);
-		if (!Path || !Path->IsValid() || Path->IsPartial()) { continue; }
-		const float EscapeGain = FVector::Dist2D(Projected.Location, ThreatPos) - FVector::Dist2D(Self, ThreatPos);
-		const float Score = UEmergeFlee::ScoreFleeCandidate(
-			EscapeGain, Path->GetPathLength(), FVector::Dist2D(Self, Projected.Location), 1500.0f);
-		if (Score > BestScore) { BestScore = Score; BestGoal = Projected.Location; bFound = true; }
+		if (bFound) { break; }
 	}
 	if (!bFound) { return false; }
 	if (!NavigateTo(BestGoal)) { return false; }
