@@ -60,6 +60,8 @@ protected:
 	void ToggleCrouch();
 	void AimPressed();
 	void AimReleased();
+	void OnJumpPressed();
+	void OnJumpReleased();
 
 	// Local crouch toggle state (ALS stance is driven by SetDesiredStance).
 	bool bCrouched = false;

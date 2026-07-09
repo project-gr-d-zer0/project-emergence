@@ -91,8 +91,8 @@ void AEmergeCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 	PlayerInputComponent->BindAxis(TEXT("MoveRight"), this, &AEmergeCharacter::MoveRight);
 	PlayerInputComponent->BindAxis(TEXT("Turn"), this, &AEmergeCharacter::TurnYaw);
 	PlayerInputComponent->BindAxis(TEXT("LookUp"), this, &AEmergeCharacter::LookUpPitch);
-	PlayerInputComponent->BindAction(TEXT("Jump"), IE_Pressed, this, &ACharacter::Jump);
-	PlayerInputComponent->BindAction(TEXT("Jump"), IE_Released, this, &ACharacter::StopJumping);
+	PlayerInputComponent->BindAction(TEXT("Jump"), IE_Pressed, this, &AEmergeCharacter::OnJumpPressed);
+	PlayerInputComponent->BindAction(TEXT("Jump"), IE_Released, this, &AEmergeCharacter::OnJumpReleased);
 	PlayerInputComponent->BindAction(TEXT("Sprint"), IE_Pressed, this, &AEmergeCharacter::SprintPressed);
 	PlayerInputComponent->BindAction(TEXT("Sprint"), IE_Released, this, &AEmergeCharacter::SprintReleased);
 	PlayerInputComponent->BindAction(TEXT("Crouch"), IE_Pressed, this, &AEmergeCharacter::ToggleCrouch);
@@ -149,10 +149,38 @@ void AEmergeCharacter::AimPressed()
 {
 	SetDesiredAiming(true);
 	SetDesiredRotationMode(AlsRotationModeTags::Aiming);
+	SetOverlayMode(AlsOverlayModeTags::Rifle);   // visible rifle-hold aim pose (real weapon mesh later)
 }
 
 void AEmergeCharacter::AimReleased()
 {
 	SetDesiredAiming(false);
 	SetDesiredRotationMode(AlsRotationModeTags::VelocityDirection);
+	SetOverlayMode(AlsOverlayModeTags::Default);
+}
+
+void AEmergeCharacter::OnJumpPressed()
+{
+	// Match ALS's own jump priority: recover from ragdoll, else mantle/vault a ledge, else stand from
+	// crouch, else jump. This is what makes vaulting over obstacles work.
+	if (StopRagdolling())
+	{
+		return;
+	}
+	if (StartMantling())
+	{
+		return;
+	}
+	if (GetStance() == AlsStanceTags::Crouching)
+	{
+		bCrouched = false;
+		SetDesiredStance(AlsStanceTags::Standing);
+		return;
+	}
+	Jump();
+}
+
+void AEmergeCharacter::OnJumpReleased()
+{
+	StopJumping();
 }
