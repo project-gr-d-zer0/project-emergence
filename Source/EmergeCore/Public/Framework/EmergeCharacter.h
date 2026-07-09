@@ -32,4 +32,9 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Emerge") TObjectPtr<UEmergeInventoryComponent> Inventory;
 
 	virtual void Tick(float DeltaSeconds) override;
+
+	// Structured spatial snapshot for autonomous testing: player movement, game camera POV,
+	// LIDAR rays (walls/floor/ceiling distances + hit names), and nearby actors. Read via Remote Control.
+	UFUNCTION(BlueprintCallable, Category = "Emerge|Sensor")
+	FString SenseEnvironment(float Radius = 4000.0f);
 };
