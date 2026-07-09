@@ -20,4 +20,9 @@ public:
 	// condition restored. Returns 0 if there is no upward restoration (ToConditionPct <= FromConditionPct).
 	UFUNCTION(BlueprintCallable, Category = "Economy")
 	static int32 RepairCost(int32 BaseValue, float FromConditionPct, float ToConditionPct);
+
+	// Trade listing fee: 5% base, superlinear above fair value to structurally punish market
+	// manipulation. Returns 0 if either input is non-positive.
+	UFUNCTION(BlueprintCallable, Category = "Economy")
+	static int32 TradeFee(int32 FairValue, int32 AskingPrice);
 };
