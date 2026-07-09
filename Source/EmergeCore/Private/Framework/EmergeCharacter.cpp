@@ -16,7 +16,6 @@
 #include "NavigationSystem.h"
 #include "NavigationPath.h"
 #include "NavigationInvokerComponent.h"
-#include "Nav/EmergeNavSteering.h"
 #include "GameFramework/WorldSettings.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Animation/AnimInstance.h"
@@ -127,11 +126,13 @@ void AEmergeCharacter::Tick(float DeltaSeconds)
 		else
 		{
 			const FVector WP = NavPath[NavIdx];
-			const FVector2D Heading = UEmergeNavSteering::DesiredHeading(FVector2D(Cur.X, Cur.Y), FVector2D(WP.X, WP.Y));
+			const FVector2D Heading = (FVector2D(WP.X, WP.Y) - FVector2D(Cur.X, Cur.Y)).GetSafeNormal();
 			const FVector Fwd = GetActorForwardVector();
-			NavTurnErrorDeg = UEmergeNavSteering::TurnErrorDeg(Heading, FVector2D(Fwd.X, Fwd.Y));
+			const FVector2D Facing = FVector2D(Fwd.X, Fwd.Y).GetSafeNormal();
+			NavTurnErrorDeg = (Heading.IsNearlyZero() || Facing.IsNearlyZero()) ? 0.0f
+				: FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(FVector2D::DotProduct(Heading, Facing), -1.0f, 1.0f)));
 			// Turn-gate: at a sharp corner, throttle down so he pivots to face the new segment before running down it.
-			const float Throttle = UEmergeNavSteering::ShouldSlowForTurn(NavTurnErrorDeg, 50.0f) ? 0.15f : 1.0f;
+			const float Throttle = (NavTurnErrorDeg > 50.0f) ? 0.15f : 1.0f;
 			AddMovementInput(FVector(Heading.X, Heading.Y, 0.0f), Throttle);
 			NavStuckTime = (GetVelocity().Size2D() < 10.0f) ? NavStuckTime + DeltaSeconds : 0.0f;
 			if (NavStuckTime > 3.0f) { bNavigating = false; NavState = TEXT("blocked"); RestoreNavFacing(); }
