@@ -15,6 +15,7 @@
 #include "Components/CapsuleComponent.h"
 #include "NavigationSystem.h"
 #include "NavigationPath.h"
+#include "NavigationInvokerComponent.h"
 #include "GameFramework/WorldSettings.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Animation/AnimInstance.h"
@@ -60,6 +61,11 @@ AEmergeCharacter::AEmergeCharacter()
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
 	FollowCamera->bUsePawnControlRotation = false;
+
+	// Nav invoker: engine builds navmesh tiles around the character at runtime (Downtown West
+	// ships without a baked navmesh). Radii in cm: generate a ~40m bubble, keep out to ~60m.
+	NavInvoker = CreateDefaultSubobject<UNavigationInvokerComponent>(TEXT("NavInvoker"));
+	NavInvoker->SetGenerationRadii(4000.0f, 6000.0f);
 
 	// ALS gameplay + movement settings (required or the animation refresh early-returns).
 	static ConstructorHelpers::FObjectFinder<UAlsCharacterSettings> AlsSettings(
