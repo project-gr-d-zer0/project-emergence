@@ -34,7 +34,7 @@ if (-not $compile) {
   $rd = Join-Path $repo "Saved\TestReports"
   Remove-Item (Join-Path $rd "index.json") -Force -EA SilentlyContinue
   $tests = if ($args[0]) { $args[0] } else { "Emergence." }
-  & $cmd "$uproj" -execcmds="Automation RunTests $tests; Quit" -unattended -nopause -nosplash -nullrhi -nosound -NoShaderCompile -NoAssetRegistryCacheWrite -NoLiveCoding -stdout -ReportOutputPath="$rd" 2>&1 | Out-Null
+  & $cmd "$uproj" -execcmds="Automation RunTests $tests; Quit" -unattended -nopause -nosplash -nullrhi -stdout -ReportOutputPath="$rd" 2>&1 | Out-Null
   $idx = Join-Path $rd "index.json"
   if (Test-Path $idx) {
     $r = Get-Content $idx -Raw | ConvertFrom-Json
