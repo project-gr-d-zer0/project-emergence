@@ -17,6 +17,7 @@ public class EmergeCore : ModuleRules
             Path.Combine(ModuleDirectory, "Public", "Inventory"),
             Path.Combine(ModuleDirectory, "Public", "World"),
             Path.Combine(ModuleDirectory, "Public", "Combat"),
+            Path.Combine(ModuleDirectory, "Public", "Survival"),
         });
     }
 }
