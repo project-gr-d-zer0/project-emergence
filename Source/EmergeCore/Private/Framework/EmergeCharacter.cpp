@@ -16,6 +16,9 @@
 #include "NavigationSystem.h"
 #include "NavigationPath.h"
 #include "NavigationInvokerComponent.h"
+#include "Nav/EmergeNavRecovery.h"
+#include "Nav/EmergeNavEta.h"
+#include "Nav/EmergeNavPathLen.h"
 #include "GameFramework/WorldSettings.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Animation/AnimInstance.h"
@@ -134,8 +137,17 @@ void AEmergeCharacter::Tick(float DeltaSeconds)
 			// Turn-gate: at a sharp corner, throttle down so he pivots to face the new segment before running down it.
 			const float Throttle = (NavTurnErrorDeg > 50.0f) ? 0.15f : 1.0f;
 			AddMovementInput(FVector(Heading.X, Heading.Y, 0.0f), Throttle);
+			// Progress tracking (path-length remaining) + stuck-recovery ladder (continue -> repath -> abandon).
+			const float CurDist = UEmergeNavPathLen::RemainingLength(NavPath, NavIdx, Cur);
+			bNavMakingProgress = (NavLastDist < 0.0f) ? true : UEmergeNavEta::MakingProgress(NavLastDist, CurDist, 5.0f);
+			NavLastDist = CurDist;
 			NavStuckTime = (GetVelocity().Size2D() < 10.0f) ? NavStuckTime + DeltaSeconds : 0.0f;
-			if (NavStuckTime > 3.0f) { bNavigating = false; NavState = TEXT("blocked"); RestoreNavFacing(); }
+			if (NavStuckTime > 3.0f)
+			{
+				const int32 Action = UEmergeNavRecovery::DecideRecovery(NavStuckTime, NavRepathCount, 3.0f, 2);
+				if (Action == 1) { ++NavRepathCount; NavState = TEXT("repathing"); ComputePathTo(NavGoal); if (!bNavigating) { RestoreNavFacing(); } }
+				else if (UEmergeNavRecovery::ShouldGiveUp(Action)) { bNavigating = false; NavState = TEXT("blocked"); RestoreNavFacing(); }
+			}
 		}
 	}
 
@@ -427,7 +439,7 @@ FString AEmergeCharacter::SenseEnvironment(float Radius)
 		*BonesJson, *AnimJson, *FString::Join(ActorLines, TEXT(",")));
 }
 
-bool AEmergeCharacter::NavigateTo(FVector Destination)
+bool AEmergeCharacter::ComputePathTo(FVector Destination)
 {
 	UNavigationSystemV1* Nav = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld());
 	if (!Nav) { NavState = TEXT("no_navsystem"); bNavigating = false; return false; }
@@ -440,12 +452,22 @@ bool AEmergeCharacter::NavigateTo(FVector Destination)
 	NavIdx = 1;
 	NavGoal = Destination;
 	NavStuckTime = 0.0f;
+	NavLastDist = -1.0f;
 	bNavigating = true;
-	PrevRotationMode = GetDesiredRotationMode();
-	SetDesiredRotationMode(AlsRotationModeTags::VelocityDirection);
-	bNavRotationOverridden = true;
 	NavState = Path->IsPartial() ? TEXT("following_partial") : TEXT("following");
 	return true;
+}
+
+bool AEmergeCharacter::NavigateTo(FVector Destination)
+{
+	NavRepathCount = 0;
+	const bool bOk = ComputePathTo(Destination);
+	if (bOk)
+	{
+		if (!bNavRotationOverridden) { PrevRotationMode = GetDesiredRotationMode(); bNavRotationOverridden = true; }
+		SetDesiredRotationMode(AlsRotationModeTags::VelocityDirection);
+	}
+	return bOk;
 }
 
 void AEmergeCharacter::StopNavigating()
@@ -459,10 +481,14 @@ void AEmergeCharacter::StopNavigating()
 
 FString AEmergeCharacter::GetNavProgress()
 {
-	const float DistRem = bNavigating ? FVector::Dist2D(GetActorLocation(), NavGoal) : 0.0f;
+	const FVector Cur = GetActorLocation();
+	const float DistRem = bNavigating ? FVector::Dist2D(Cur, NavGoal) : 0.0f;
+	const float PathRem = bNavigating ? UEmergeNavPathLen::RemainingLength(NavPath, NavIdx, Cur) : 0.0f;
+	const float Eta = UEmergeNavEta::EtaSeconds(PathRem, GetVelocity().Size2D());
 	return FString::Printf(
-		TEXT("{\"state\":\"%s\",\"navigating\":%s,\"waypoint\":%d,\"total\":%d,\"distRemaining\":%.0f,\"stuckTime\":%.1f,\"turnErrDeg\":%.0f}"),
-		*NavState, bNavigating ? TEXT("true") : TEXT("false"), NavIdx, NavPath.Num(), DistRem, NavStuckTime, NavTurnErrorDeg);
+		TEXT("{\"state\":\"%s\",\"navigating\":%s,\"waypoint\":%d,\"total\":%d,\"distRemaining\":%.0f,\"pathRemaining\":%.0f,\"etaSeconds\":%.1f,\"makingProgress\":%s,\"repaths\":%d,\"stuckTime\":%.1f,\"turnErrDeg\":%.0f}"),
+		*NavState, bNavigating ? TEXT("true") : TEXT("false"), NavIdx, NavPath.Num(), DistRem, PathRem, Eta,
+		bNavMakingProgress ? TEXT("true") : TEXT("false"), NavRepathCount, NavStuckTime, NavTurnErrorDeg);
 }
 
 void AEmergeCharacter::RestoreNavFacing()

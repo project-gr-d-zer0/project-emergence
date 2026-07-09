@@ -68,5 +68,9 @@ private:
 	FGameplayTag PrevRotationMode;
 	bool bNavRotationOverridden = false;
 	float NavTurnErrorDeg = 0.0f;
+	int32 NavRepathCount = 0;
+	float NavLastDist = -1.0f;
+	bool bNavMakingProgress = false;
+	bool ComputePathTo(FVector Destination);
 	void RestoreNavFacing();
 };
