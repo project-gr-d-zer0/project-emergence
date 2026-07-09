@@ -86,8 +86,12 @@ AEmergeCharacter::AEmergeCharacter()
 	if (AlsMovement.Succeeded()) { MovementSettings = AlsMovement.Object; }
 
 	// Mantling settings (the ALS example BP assigns these in-editor; without them StartMantling ensures).
+	// bAutoCalculateStartTime: the default fixed start-time interpolation skipped most of the montage
+	// at ~70uu obstacle heights -> the capsule popped up in <250ms (measured) instead of animating.
 	MantlingSettingsHigh = CreateDefaultSubobject<UAlsMantlingSettings>(TEXT("MantlingSettingsHigh"));
 	MantlingSettingsLow = CreateDefaultSubobject<UAlsMantlingSettings>(TEXT("MantlingSettingsLow"));
+	MantlingSettingsHigh->bAutoCalculateStartTime = true;
+	MantlingSettingsLow->bAutoCalculateStartTime = true;
 	static ConstructorHelpers::FObjectFinder<UAnimMontage> MantleHigh(
 		TEXT("/ALS/ALS/Animations/Actions/Mantle/AM_Als_Mantle_High.AM_Als_Mantle_High"));
 	if (MantleHigh.Succeeded()) { MantlingSettingsHigh->Montage = MantleHigh.Object; }
@@ -194,8 +198,31 @@ void AEmergeCharacter::Tick(float DeltaSeconds)
 			bNavMakingProgress = (NavLastDist < 0.0f) ? true : UEmergeNavEta::MakingProgress(NavLastDist, CurDist, 5.0f);
 			NavLastDist = CurDist;
 			NavStuckTime = (GetVelocity().Size2D() < 10.0f) ? NavStuckTime + DeltaSeconds : 0.0f;
-			// Auto-vault: briefly stuck against something while pathing -> try an ALS mantle before
-			// the repath ladder (minor obstacles snag the follower; ALS validates the surface itself).
+			// PROACTIVE vault: low obstacle directly ahead while moving -> mantle before any stall
+			// (Dying Light flow). Knee trace blocked + chest trace clear = vaultable band.
+			if (GetLocomotionAction() != AlsLocomotionActionTags::Mantling && GetVelocity().Size2D() > 150.0f
+				&& GetCharacterMovement() && GetCharacterMovement()->IsMovingOnGround())
+			{
+				const float Look = FMath::Clamp(GetVelocity().Size2D() * 0.35f, 120.0f, 250.0f);
+				const FVector Feet = GetActorLocation()
+					- FVector(0.0f, 0.0f, GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+				const FVector Ahead(Heading.X, Heading.Y, 0.0f);
+				FCollisionQueryParams VaultQP(SCENE_QUERY_STAT(EmergeVaultProbe), false, this);
+				FHitResult LowHit, HighHit;
+				bool bLowBlocked = GetWorld()->LineTraceSingleByChannel(LowHit,
+					Feet + FVector(0, 0, 45.0f), Feet + FVector(0, 0, 45.0f) + Ahead * Look, ECC_Visibility, VaultQP);
+				const bool bHighBlocked = GetWorld()->LineTraceSingleByChannel(HighHit,
+					Feet + FVector(0, 0, 140.0f), Feet + FVector(0, 0, 140.0f) + Ahead * (Look + 50.0f), ECC_Visibility, VaultQP);
+				// Walkable hit = ramp/stair, never a vault target (canonical slope guard).
+				if (bLowBlocked && GetCharacterMovement()->IsWalkable(LowHit)) { bLowBlocked = false; }
+				if (bLowBlocked && !bHighBlocked && IsMantlingAllowedToStart() && StartMantling())
+				{
+					++NavVaultCount;
+					NavStuckTime = 0.0f;
+				}
+			}
+			// REACTIVE fallback: briefly stuck against something the probes missed -> try a mantle
+			// before the repath ladder (ALS validates the surface itself).
 			if (NavStuckTime > 0.5f && NavStuckTime <= 3.0f && GetLocomotionAction() != AlsLocomotionActionTags::Mantling)
 			{
 				if (IsMantlingAllowedToStart() && StartMantling())

@@ -10,7 +10,9 @@
 #include "Kismet/GameplayStatics.h"
 #include "Nav/EmergeAwareness.h"
 #include "Nav/EmergeCornering.h"
+#include "Nav/EmergeHop.h"
 #include "Nav/EmergeInfluenceGrid.h"
+#include "Components/CapsuleComponent.h"
 
 AEmergeEnemyController::AEmergeEnemyController(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer.SetDefaultSubobjectClass<UCrowdFollowingComponent>(TEXT("PathFollowingComponent")))
@@ -121,6 +123,41 @@ void AEmergeEnemyController::Tick(float DeltaSeconds)
 		AIState = EEmergeAIState::Unaware;
 		SetSpeed(ShambleSpeed);
 	}
+
+	// Traversal: minor props don't cut the navmesh, so the path can run straight into them.
+	TryTraversalHop(Self, DeltaSeconds);
+}
+
+void AEmergeEnemyController::TryTraversalHop(APawn* Self, float DeltaSeconds)
+{
+	HopCooldown = FMath::Max(0.0f, HopCooldown - DeltaSeconds);
+	ACharacter* SelfChar = Cast<ACharacter>(Self);
+	if (!SelfChar || HopCooldown > 0.0f || GetMoveStatus() != EPathFollowingStatus::Moving) { return; }
+	UCharacterMovementComponent* Move = SelfChar->GetCharacterMovement();
+	if (!Move || !Move->IsMovingOnGround()) { return; }
+
+	// Probe along travel direction (velocity when moving, facing when pinned against the obstacle).
+	const FVector Vel = SelfChar->GetVelocity();
+	FVector Ahead = (Vel.SizeSquared2D() > 400.0f) ? FVector(Vel.X, Vel.Y, 0.0f).GetSafeNormal()
+	                                               : FVector(SelfChar->GetActorForwardVector().X, SelfChar->GetActorForwardVector().Y, 0.0f).GetSafeNormal();
+	if (Ahead.IsNearlyZero()) { return; }
+	const FVector Feet = SelfChar->GetActorLocation()
+		- FVector(0.0f, 0.0f, SelfChar->GetCapsuleComponent()->GetScaledCapsuleHalfHeight());
+	FCollisionQueryParams QP(SCENE_QUERY_STAT(EmergeHopProbe), false, SelfChar);
+	FHitResult LowHit, HighHit;
+	const bool bLow = GetWorld()->LineTraceSingleByChannel(LowHit,
+		Feet + FVector(0, 0, 45.0f), Feet + FVector(0, 0, 45.0f) + Ahead * HopTriggerDist, ECC_Visibility, QP);
+	const bool bHigh = GetWorld()->LineTraceSingleByChannel(HighHit,
+		Feet + FVector(0, 0, HopClearHeightUu + 15.0f), Feet + FVector(0, 0, HopClearHeightUu + 15.0f) + Ahead * (HopTriggerDist + 60.0f), ECC_Visibility, QP);
+	if (bLow && Move->IsWalkable(LowHit)) { return; }   // ramp/stair, not a hop target
+	const float LowDist = bLow ? LowHit.Distance : -1.0f;
+	if (UEmergeHop::ShouldHop(LowDist, HopTriggerDist, !bHigh, true))
+	{
+		const float Vz = UEmergeHop::HopVerticalVelocity(HopClearHeightUu, GetWorld()->GetGravityZ(), 20.0f);
+		SelfChar->LaunchCharacter(Ahead * HopForwardSpeed + FVector(0, 0, Vz), true, true);
+		HopCooldown = HopCooldownSeconds;
+		++HopCount;
+	}
 }
 
 void AEmergeEnemyController::EnsureMoveToActor(AActor* Goal)
@@ -199,7 +236,7 @@ FString AEmergeEnemyController::GetAIStatus()
 			Peak.X, Peak.Y, Influence->PeakConfidence(), Influence->IsDispersed() ? TEXT("true") : TEXT("false"));
 	}
 	return FString::Printf(
-		TEXT("{\"state\":\"%s\",\"awareness\":%.2f,\"targetVisible\":%s,\"dist\":%.0f,\"lastKnown\":[%.0f,%.0f],\"searchTime\":%.1f,\"cornerScale\":%.2f,\"grid\":%s}"),
+		TEXT("{\"state\":\"%s\",\"awareness\":%.2f,\"targetVisible\":%s,\"dist\":%.0f,\"lastKnown\":[%.0f,%.0f],\"searchTime\":%.1f,\"cornerScale\":%.2f,\"hops\":%d,\"grid\":%s}"),
 		Names[Idx], Awareness, bTargetVisible ? TEXT("true") : TEXT("false"),
-		GetDistanceToTarget(), LastKnownPosition.X, LastKnownPosition.Y, SearchTime, CornerScale, *GridJson);
+		GetDistanceToTarget(), LastKnownPosition.X, LastKnownPosition.Y, SearchTime, CornerScale, HopCount, *GridJson);
 }

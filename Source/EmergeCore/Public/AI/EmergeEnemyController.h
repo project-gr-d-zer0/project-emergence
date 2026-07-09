@@ -52,6 +52,13 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float CornerFullDeg = 180.0f;   // deg/s: at/above = MinScale
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float CornerMinScale = 0.65f;
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float CornerRecoverSeconds = 0.7f;  // dip hold: juke opens a real gap
+	// Traversal hop (plain-ACharacter zombie has no ALS mantle): knee-blocked + head-clear ahead -> parabolic hop.
+	// Tuned for the pinned-at-wall case (measured: 300 fwd smacked the face at h~50 and bounced 15x):
+	// slower forward = more rise before the face; capsule reaches the face at h~85-126 > 70uu walls.
+	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float HopTriggerDist = 90.0f;
+	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float HopClearHeightUu = 180.0f;   // launch apex target
+	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float HopForwardSpeed = 220.0f;
+	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float HopCooldownSeconds = 1.2f;
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float GiveUpSeconds = 15.0f;
 
 	UFUNCTION() void OnPerception(AActor* Actor, FAIStimulus Stimulus);
@@ -66,7 +73,10 @@ private:
 	bool bIssuedMove = false;
 	float CornerScale = 1.0f;   // last applied cornering speed scale (telemetry)
 	FVector2D PrevHeading = FVector2D::ZeroVector;
+	float HopCooldown = 0.0f;
+	int32 HopCount = 0;         // telemetry
 	void UpdateCorneringScale(const APawn* Self, float DeltaSeconds);
+	void TryTraversalHop(APawn* Self, float DeltaSeconds);
 	void SetSpeed(float Speed);
 	void EnsureMoveToActor(AActor* Goal);
 	void EnsureMoveToLocation(const FVector& Dest, float Accept);
