@@ -12,6 +12,8 @@ class UEmergeDamageComponent;
 class UEmergeStatusEffectComponent;
 class UEmergeEquipmentComponent;
 class UEmergeInventoryComponent;
+class USpringArmComponent;
+class UCameraComponent;
 
 // Survivor pawn built on ALS's example character: inherits its complete, proven Enhanced Input
 // (move/look/sprint/crouch/jump/aim/mantle/ragdoll) + ALS camera. Adds the full survival runtime suite
@@ -31,7 +33,11 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Emerge") TObjectPtr<UEmergeEquipmentComponent> Equipment;
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Emerge") TObjectPtr<UEmergeInventoryComponent> Inventory;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Emerge|Camera") TObjectPtr<USpringArmComponent> CameraBoom;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Emerge|Camera") TObjectPtr<UCameraComponent> FollowCamera;
+
 	virtual void Tick(float DeltaSeconds) override;
+	virtual void CalcCamera(float DeltaTime, struct FMinimalViewInfo& OutResult) override;
 
 	// Structured spatial snapshot for autonomous testing: player movement, game camera POV,
 	// LIDAR rays (walls/floor/ceiling distances + hit names), and nearby actors. Read via Remote Control.

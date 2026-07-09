@@ -10,6 +10,9 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "EngineUtils.h"
 #include "Engine/StaticMeshActor.h"
+#include "GameFramework/SpringArmComponent.h"
+#include "Camera/CameraComponent.h"
+#include "Components/CapsuleComponent.h"
 #include "Camera/PlayerCameraManager.h"
 #include "GameFramework/Character.h"
 #include "HAL/IConsoleManager.h"
@@ -38,6 +41,19 @@ AEmergeCharacter::AEmergeCharacter()
 	StatusEffects = CreateDefaultSubobject<UEmergeStatusEffectComponent>(TEXT("StatusEffects"));
 	Equipment = CreateDefaultSubobject<UEmergeEquipmentComponent>(TEXT("Equipment"));
 	Inventory = CreateDefaultSubobject<UEmergeInventoryComponent>(TEXT("Inventory"));
+
+	// Reliable 3rd-person camera rig (overrides the unconfigured ALS example camera).
+	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
+	CameraBoom->SetupAttachment(GetCapsuleComponent());
+	CameraBoom->TargetArmLength = 350.0f;
+	CameraBoom->SocketOffset = FVector(0.0f, 0.0f, 70.0f);
+	CameraBoom->bUsePawnControlRotation = true;
+	CameraBoom->bEnableCameraLag = true;
+	CameraBoom->CameraLagSpeed = 12.0f;
+
+	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
+	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
+	FollowCamera->bUsePawnControlRotation = false;
 
 	// ALS gameplay + movement settings (required or the animation refresh early-returns).
 	static ConstructorHelpers::FObjectFinder<UAlsCharacterSettings> AlsSettings(
@@ -109,6 +125,18 @@ void AEmergeCharacter::Tick(float DeltaSeconds)
 	}
 }
 
+
+
+void AEmergeCharacter::CalcCamera(float DeltaTime, FMinimalViewInfo& OutResult)
+{
+	// Use our 3rd-person rig instead of the ALS example camera (which our reparent left unconfigured).
+	if (FollowCamera)
+	{
+		FollowCamera->GetCameraView(DeltaTime, OutResult);
+		return;
+	}
+	Super::CalcCamera(DeltaTime, OutResult);
+}
 
 FString AEmergeCharacter::SenseEnvironment(float Radius)
 {
