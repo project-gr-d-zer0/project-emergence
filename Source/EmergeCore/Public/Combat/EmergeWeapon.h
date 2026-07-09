@@ -32,4 +32,8 @@ public:
 	// Malfunction chance in [0,1]: zero above 93% durability while cool, rising with wear and heat.
 	UFUNCTION(BlueprintCallable, Category = "Combat|Weapon")
 	static float MalfunctionChance(float DurabilityPct, float Heat);
+
+	// Spread (MOA) at a given range, growing 1% per meter; aiming halves the spread.
+	UFUNCTION(BlueprintCallable, Category = "Combat|Weapon")
+	static float SpreadAtRange(float BaseMOA, float RangeM, bool bAiming);
 };

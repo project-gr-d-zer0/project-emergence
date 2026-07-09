@@ -38,3 +38,8 @@ float UEmergeWeapon::MalfunctionChance(float DurabilityPct, float Heat)
 	}
 	return FMath::Clamp(C, 0.0f, 1.0f);
 }
+
+float UEmergeWeapon::SpreadAtRange(float BaseMOA, float RangeM, bool bAiming)
+{
+	return BaseMOA * (1.0f + FMath::Max(0.0f, RangeM) / 100.0f) * (bAiming ? 0.5f : 1.0f);
+}
