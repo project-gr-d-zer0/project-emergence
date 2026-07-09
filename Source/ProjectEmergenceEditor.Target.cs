@@ -4,7 +4,7 @@ public class ProjectEmergenceEditorTarget : TargetRules
     public ProjectEmergenceEditorTarget(TargetInfo Target) : base(Target)
     {
         Type = TargetType.Editor;
-        DefaultBuildSettings = BuildSettingsVersion.V5;
+        DefaultBuildSettings = BuildSettingsVersion.V7;
         bOverrideBuildEnvironment = true;
         IncludeOrderVersion = EngineIncludeOrderVersion.Latest;
 		// RAD linker (~50%% faster links) on build hosts only - mutually exclusive with Live Coding
