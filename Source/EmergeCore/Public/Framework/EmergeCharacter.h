@@ -65,4 +65,8 @@ private:
 	FVector NavGoal = FVector::ZeroVector;
 	float NavStuckTime = 0.0f;
 	FString NavState = TEXT("idle");
+	FGameplayTag PrevRotationMode;
+	bool bNavRotationOverridden = false;
+	float NavTurnErrorDeg = 0.0f;
+	void RestoreNavFacing();
 };

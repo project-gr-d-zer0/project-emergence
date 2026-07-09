@@ -16,6 +16,7 @@
 #include "NavigationSystem.h"
 #include "NavigationPath.h"
 #include "NavigationInvokerComponent.h"
+#include "Nav/EmergeNavSteering.h"
 #include "GameFramework/WorldSettings.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Animation/AnimInstance.h"
@@ -121,13 +122,19 @@ void AEmergeCharacter::Tick(float DeltaSeconds)
 		if (FVector::Dist2D(Cur, NavPath[NavIdx]) <= 120.0f)
 		{
 			++NavIdx;
-			if (!NavPath.IsValidIndex(NavIdx)) { bNavigating = false; NavState = TEXT("arrived"); }
+			if (!NavPath.IsValidIndex(NavIdx)) { bNavigating = false; NavState = TEXT("arrived"); RestoreNavFacing(); }
 		}
 		else
 		{
-			AddMovementInput((NavPath[NavIdx] - Cur).GetSafeNormal2D(), 1.0f);
+			const FVector WP = NavPath[NavIdx];
+			const FVector2D Heading = UEmergeNavSteering::DesiredHeading(FVector2D(Cur.X, Cur.Y), FVector2D(WP.X, WP.Y));
+			const FVector Fwd = GetActorForwardVector();
+			NavTurnErrorDeg = UEmergeNavSteering::TurnErrorDeg(Heading, FVector2D(Fwd.X, Fwd.Y));
+			// Turn-gate: at a sharp corner, throttle down so he pivots to face the new segment before running down it.
+			const float Throttle = UEmergeNavSteering::ShouldSlowForTurn(NavTurnErrorDeg, 50.0f) ? 0.15f : 1.0f;
+			AddMovementInput(FVector(Heading.X, Heading.Y, 0.0f), Throttle);
 			NavStuckTime = (GetVelocity().Size2D() < 10.0f) ? NavStuckTime + DeltaSeconds : 0.0f;
-			if (NavStuckTime > 3.0f) { bNavigating = false; NavState = TEXT("blocked"); }
+			if (NavStuckTime > 3.0f) { bNavigating = false; NavState = TEXT("blocked"); RestoreNavFacing(); }
 		}
 	}
 
@@ -433,6 +440,9 @@ bool AEmergeCharacter::NavigateTo(FVector Destination)
 	NavGoal = Destination;
 	NavStuckTime = 0.0f;
 	bNavigating = true;
+	PrevRotationMode = GetDesiredRotationMode();
+	SetDesiredRotationMode(AlsRotationModeTags::VelocityDirection);
+	bNavRotationOverridden = true;
 	NavState = Path->IsPartial() ? TEXT("following_partial") : TEXT("following");
 	return true;
 }
@@ -443,12 +453,22 @@ void AEmergeCharacter::StopNavigating()
 	NavState = TEXT("idle");
 	NavPath.Reset();
 	NavIdx = 0;
+	RestoreNavFacing();
 }
 
 FString AEmergeCharacter::GetNavProgress()
 {
 	const float DistRem = bNavigating ? FVector::Dist2D(GetActorLocation(), NavGoal) : 0.0f;
 	return FString::Printf(
-		TEXT("{\"state\":\"%s\",\"navigating\":%s,\"waypoint\":%d,\"total\":%d,\"distRemaining\":%.0f,\"stuckTime\":%.1f}"),
-		*NavState, bNavigating ? TEXT("true") : TEXT("false"), NavIdx, NavPath.Num(), DistRem, NavStuckTime);
+		TEXT("{\"state\":\"%s\",\"navigating\":%s,\"waypoint\":%d,\"total\":%d,\"distRemaining\":%.0f,\"stuckTime\":%.1f,\"turnErrDeg\":%.0f}"),
+		*NavState, bNavigating ? TEXT("true") : TEXT("false"), NavIdx, NavPath.Num(), DistRem, NavStuckTime, NavTurnErrorDeg);
+}
+
+void AEmergeCharacter::RestoreNavFacing()
+{
+	if (bNavRotationOverridden)
+	{
+		SetDesiredRotationMode(PrevRotationMode);
+		bNavRotationOverridden = false;
+	}
 }
