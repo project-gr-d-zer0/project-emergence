@@ -37,6 +37,14 @@ AEmergeEnemyController::AEmergeEnemyController(const FObjectInitializer& ObjectI
 void AEmergeEnemyController::BeginPlay()
 {
 	Super::BeginPlay();
+	// De-robotize (research): DetourCrowd steering knobs — steer into corners early, offset from
+	// the string-pulled corner-hugging line, decelerate into the goal.
+	if (UCrowdFollowingComponent* Crowd = Cast<UCrowdFollowingComponent>(GetPathFollowingComponent()))
+	{
+		Crowd->SetCrowdAnticipateTurns(true);
+		Crowd->SetCrowdPathOffset(true);
+		Crowd->SetCrowdSlowdownAtGoal(true);
+	}
 	if (Perception)
 	{
 		Perception->OnTargetPerceptionUpdated.AddDynamic(this, &AEmergeEnemyController::OnPerception);

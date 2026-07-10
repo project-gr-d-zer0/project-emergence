@@ -1,5 +1,6 @@
 #include "AI/EmergeEnemy.h"
 #include "AI/EmergeEnemyController.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "Animation/AnimInstance.h"
@@ -79,6 +80,15 @@ void AEmergeEnemy::BeginPlay()
 	// Face travel direction (an AI has no meaningful view direction) and start at shamble.
 	SetDesiredRotationMode(AlsRotationModeTags::VelocityDirection);
 	SetDesiredGait(AlsGaitTags::Walking);
+	// De-robotize (research quick wins): injured overlay = lurchy full-body posture for free;
+	// acceleration-driven path following with low accel = weighty starts/stops from physics.
+	SetOverlayMode(AlsOverlayModeTags::Injured);
+	if (UCharacterMovementComponent* Move = GetCharacterMovement())
+	{
+		Move->GetNavMovementProperties()->bUseAccelerationForPaths = true;
+		Move->MaxAcceleration = 550.0f;
+		Move->BrakingFrictionFactor = 0.6f;
+	}
 }
 
 UAlsMantlingSettings* AEmergeEnemy::SelectMantlingSettings_Implementation(EAlsMantlingType MantlingType)
