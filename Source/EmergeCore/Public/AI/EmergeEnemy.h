@@ -31,6 +31,18 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Emerge|Anim")
 	FString GetAnimDebug() const;
 
+	// Scripted zombie wall traversal: a slow two-segment topple over a low obstacle — rise up the
+	// wall face to above the obstacle top, then collapse forward/down to the far-side floor —
+	// driven from Tick as a world-space capsule lerp. Zombie-look mode has no ALS anim instance
+	// (mantle montages can't play, IsMantlingAllowedToStart refuses), so the controller calls this
+	// instead of StartMantling; design canon: shamblers messily FALL over walls, they never jump.
+	// Returns false unless zombie-look is active, grounded, and not already traversing.
+	UFUNCTION(BlueprintCallable, Category = "Emerge|ZombieLook")
+	bool StartFallTraversal(const FVector& ObstacleTopPoint, const FVector& LandingPoint);
+
+	bool IsZombieLookActive() const { return bZombieLookActive; }
+	bool IsFallTraversing() const { return bFallTraversing; }
+
 	// Single source of truth for zombie gait speeds (the controller derives its thresholds from
 	// these in OnPossess). Research-tuned: shamble 150, chase 560 (vs player run 375/sprint 640).
 	UPROPERTY(EditAnywhere, Category = "Emerge") float ZombieWalkSpeed = 150.0f;
@@ -49,6 +61,17 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Emerge|ZombieLook") TArray<TSoftObjectPtr<UAnimSequence>> IdleClips;
 	UPROPERTY(EditAnywhere, Category = "Emerge|ZombieLook") TArray<TSoftObjectPtr<UAnimSequence>> WalkClips;
 	UPROPERTY(EditAnywhere, Category = "Emerge|ZombieLook") TArray<TSoftObjectPtr<UAnimSequence>> ChaseClips;
+
+	// Fall-traversal composite (StartFallTraversal), all shambler-native — no jump clips anywhere:
+	// rise = reach loop (clawing/dragging itself up the face), topple = stand-to-crawl collapse
+	// over the lip, recover = crawl-to-stand scramble after landing. One of each rolled + rate-
+	// randomized per traversal.
+	UPROPERTY(EditAnywhere, Category = "Emerge|ZombieLook") TArray<TSoftObjectPtr<UAnimSequence>> TraversalReachClips;
+	UPROPERTY(EditAnywhere, Category = "Emerge|ZombieLook") TArray<TSoftObjectPtr<UAnimSequence>> TraversalToppleClips;
+	UPROPERTY(EditAnywhere, Category = "Emerge|ZombieLook") TArray<TSoftObjectPtr<UAnimSequence>> TraversalRecoverClips;
+	// Segment durations roughly track the clips at their randomized rates (slow topple, not a vault).
+	UPROPERTY(EditAnywhere, Category = "Emerge|ZombieLook") float FallRiseSeconds = 1.0f;
+	UPROPERTY(EditAnywhere, Category = "Emerge|ZombieLook") float FallDropSeconds = 0.9f;
 
 	// Cornering slowdown: rewrites the run speeds in the DUPLICATED movement settings and re-hands
 	// them to the ALS movement component. On ALS characters MaxWalkSpeed/MaxAcceleration/braking are
@@ -77,7 +100,26 @@ private:
 	float ZombieChaseAuthoredSpeed = 350.0f;  // uu/s from the Root_Motion sibling (fallback 350)
 	bool bZombieLookActive = false;           // mesh swap + single-node mode actually engaged
 	bool bZombieFirstPlayDone = false;        // first-play random-phase desync issued
+
+	// Fall-traversal runtime state (see StartFallTraversal). Hard clip refs for GC safety, same as
+	// the locomotion clips above.
+	UPROPERTY(Transient) TObjectPtr<UAnimSequence> ZombieReachClip;
+	UPROPERTY(Transient) TObjectPtr<UAnimSequence> ZombieToppleClip;
+	UPROPERTY(Transient) TObjectPtr<UAnimSequence> ZombieRecoverClip;
+	bool bFallTraversing = false;
+	int32 FallPhase = 0;              // 0 rise-to-apex, 1 topple-to-floor, 2 scramble-up pause
+	float FallPhaseTime = 0.0f;       // seconds into the current phase
+	float FallElapsed = 0.0f;         // watchdog clock over the whole traversal
+	float FallRecoverPause = 0.6f;    // rolled per traversal (shamblers struggle up at their own pace)
+	FVector FallStart = FVector::ZeroVector;
+	FVector FallApex = FVector::ZeroVector;
+	FVector FallLand = FVector::ZeroVector;
+	int32 FallTraversalCount = 0;     // telemetry (GetAnimDebug "fallTraversals")
+
 	void SetupZombieLook();
 	void UpdateZombieAnim();
+	void TickFallTraversal(float DeltaSeconds);
+	void FinishFallTraversal();
+	void PlayTraversalClip(UAnimSequence* Clip, bool bLooping, float Rate);
 	static float AuthoredSpeedFromRootMotion(const UAnimSequence* IpcClip, float FallbackSpeed);
 };

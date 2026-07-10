@@ -55,8 +55,9 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float CornerFullDeg = 180.0f;   // deg/s: at/above = MinScale
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float CornerMinScale = 0.65f;
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float CornerRecoverSeconds = 0.7f;  // dip hold: juke opens a real gap
-	// Traversal (ALS zombie): knee-blocked + head-clear ahead -> the character's own ALS
-	// StartMantling — the IDENTICAL mantle the player performs.
+	// Traversal: knee-blocked + head-clear ahead -> ALS-body pawns run the character's own ALS
+	// StartMantling (the IDENTICAL mantle the player performs); zombie-look AEmergeEnemy pawns run
+	// the scripted StartFallTraversal topple instead (no anim instance = no mantle montages).
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float HopTriggerDist = 90.0f;
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float HopClearHeightUu = 140.0f;   // max mantleable band
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float HopCooldownSeconds = 1.2f;
@@ -81,7 +82,7 @@ private:
 	float CornerScale = 1.0f;   // last applied cornering speed scale (telemetry)
 	FVector2D PrevHeading = FVector2D::ZeroVector;
 	float HopCooldown = 0.0f;
-	int32 HopCount = 0;         // telemetry (mantles performed; JSON key stays "hops")
+	int32 HopCount = 0;         // telemetry (mantles + fall traversals performed; JSON key stays "hops")
 	void UpdateCorneringScale(const APawn* Self, float DeltaSeconds);
 	void TryTraversalHop(APawn* Self, float DeltaSeconds);
 	void SetSpeed(float Speed);

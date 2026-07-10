@@ -8,6 +8,7 @@
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/AnimSingleNodeInstance.h"
+#include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Settings/AlsCharacterSettings.h"
 #include "Settings/AlsMovementSettings.h"
@@ -74,6 +75,12 @@ AEmergeEnemy::AEmergeEnemy()
 	// Chase loops on disk are 1, 2, 3 and 5 — there is no Zombie_Chase_4_Loop_IPC (verified).
 	ChaseClips = { ZombieClip(TEXT("Zombie_Chase_1_Loop_IPC")), ZombieClip(TEXT("Zombie_Chase_2_Loop_IPC")),
 	               ZombieClip(TEXT("Zombie_Chase_3_Loop_IPC")), ZombieClip(TEXT("Zombie_Chase_5_Loop_IPC")) };
+	// Fall-traversal composite (names verified on disk): reach loops = clawing up the wall face,
+	// stand-to-crawl = collapsing forward over the lip, crawl-to-stand = the scramble back up.
+	// Deliberately NO Jump_* clips — shamblers fall over walls, they never jump (design canon).
+	TraversalReachClips = { ZombieClip(TEXT("Zombie_Reach_1_Loop_IPC")), ZombieClip(TEXT("Zombie_Reach_2_Loop_IPC")) };
+	TraversalToppleClips = { ZombieClip(TEXT("Zombie_Stand_to_Crawl_1_IPC")), ZombieClip(TEXT("Zombie_Stand_to_Crawl_2_IPC")) };
+	TraversalRecoverClips = { ZombieClip(TEXT("Zombie_Crawl_1_to_Stand_IPC")), ZombieClip(TEXT("Zombie_Crawl_2_to_Stand_IPC")) };
 }
 
 void AEmergeEnemy::PostInitializeComponents()
@@ -173,6 +180,10 @@ void AEmergeEnemy::Tick(const float DeltaSeconds)
 	Super::Tick(DeltaSeconds);
 	if (bZombieLookActive)
 	{
+		if (bFallTraversing)
+		{
+			TickFallTraversal(DeltaSeconds);
+		}
 		UpdateZombieAnim();
 	}
 }
@@ -223,6 +234,9 @@ void AEmergeEnemy::SetupZombieLook()
 
 void AEmergeEnemy::UpdateZombieAnim()
 {
+	// Fall traversal owns the single node while active (reach/topple/recover clips) — the
+	// speed-switched loop logic below would stomp them the same tick it ran.
+	if (bFallTraversing) { return; }
 	USkeletalMeshComponent* MeshComp = GetMesh();
 	if (!MeshComp) { return; }
 
@@ -274,6 +288,127 @@ void AEmergeEnemy::UpdateZombieAnim()
 	}
 }
 
+bool AEmergeEnemy::StartFallTraversal(const FVector& ObstacleTopPoint, const FVector& LandingPoint)
+{
+	// Zombie-look only (the ALS body mantles instead), one traversal at a time, never from the air
+	// (a scripted lerp starting mid-fall would read as a teleport-glide).
+	UCharacterMovementComponent* Move = GetCharacterMovement();
+	if (!bZombieLookActive || bFallTraversing || !Move || !Move->IsMovingOnGround()) { return false; }
+
+	// Per-traversal randomization: one clip of each stage + rates + recovery pause, rolled fresh
+	// every wall so a horde toppling the same fence doesn't sync up.
+	ZombieReachClip = TraversalReachClips.Num() > 0
+		? TraversalReachClips[FMath::RandRange(0, TraversalReachClips.Num() - 1)].LoadSynchronous() : nullptr;
+	ZombieToppleClip = TraversalToppleClips.Num() > 0
+		? TraversalToppleClips[FMath::RandRange(0, TraversalToppleClips.Num() - 1)].LoadSynchronous() : nullptr;
+	ZombieRecoverClip = TraversalRecoverClips.Num() > 0
+		? TraversalRecoverClips[FMath::RandRange(0, TraversalRecoverClips.Num() - 1)].LoadSynchronous() : nullptr;
+	if (!ZombieReachClip || !ZombieToppleClip)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("%s: fall-traversal clips failed to load - traversal refused"), *GetName());
+		return false;
+	}
+
+	const float HalfH = GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	FallStart = GetActorLocation();
+	FallApex = ObstacleTopPoint + FVector(0.0f, 0.0f, HalfH + 12.0f);   // capsule bottom just clears the lip
+	FallLand = LandingPoint + FVector(0.0f, 0.0f, HalfH);
+	FallPhase = 0;
+	FallPhaseTime = 0.0f;
+	FallElapsed = 0.0f;
+	FallRecoverPause = FMath::FRandRange(0.4f, 0.9f);
+
+	// Scripted world-space move: MOVE_Flying so the CMC neither applies gravity nor fights the
+	// SetActorLocation lerp. Collision stays ON — the lerp sweeps false, but the endpoints were
+	// traced clear by the controller.
+	Move->StopMovementImmediately();
+	Move->SetMovementMode(MOVE_Flying);
+
+	// Rise stage: reach loop = the zombie clawing/dragging itself up the wall face, slowed.
+	PlayTraversalClip(ZombieReachClip, true, FMath::FRandRange(0.7f, 0.9f));
+	ZombieCurrentClip = nullptr;   // force UpdateZombieAnim to re-issue a loop when we hand back
+	bFallTraversing = true;
+	++FallTraversalCount;
+	return true;
+}
+
+void AEmergeEnemy::TickFallTraversal(const float DeltaSeconds)
+{
+	// Watchdog: never leave a zombie stuck flying — whatever went wrong (destroyed floor, mid-lerp
+	// possession swap, bad durations), snap to the landing and hand back to walking.
+	FallElapsed += DeltaSeconds;
+	if (FallElapsed > 4.0f)
+	{
+		SetActorLocation(FallLand, false);
+		FinishFallTraversal();
+		return;
+	}
+
+	FallPhaseTime += DeltaSeconds;
+	if (FallPhase == 0)
+	{
+		// Segment 1: drag up and forward to above the obstacle lip — SLOW, a shambler hauling
+		// itself up, nothing like a jump.
+		const float T = FMath::Clamp(FallPhaseTime / FMath::Max(FallRiseSeconds, 0.1f), 0.0f, 1.0f);
+		SetActorLocation(FMath::Lerp(FallStart, FallApex, FMath::SmoothStep(0.0f, 1.0f, T)), false);
+		if (T >= 1.0f)
+		{
+			FallPhase = 1;
+			FallPhaseTime = 0.0f;
+			// Topple stage: stand-to-crawl collapse played once — falling forward over the edge.
+			PlayTraversalClip(ZombieToppleClip, false, FMath::FRandRange(0.7f, 0.9f));
+		}
+	}
+	else if (FallPhase == 1)
+	{
+		// Segment 2: forward and down to the far-side floor with a slight arc (the body pitches
+		// over the lip rather than sliding down a straight ramp line).
+		const float T = FMath::Clamp(FallPhaseTime / FMath::Max(FallDropSeconds, 0.1f), 0.0f, 1.0f);
+		FVector Pos = FMath::Lerp(FallApex, FallLand, FMath::SmoothStep(0.0f, 1.0f, T));
+		Pos.Z += FMath::Sin(T * UE_PI) * 12.0f;
+		SetActorLocation(Pos, false);
+		if (T >= 1.0f)
+		{
+			FallPhase = 2;
+			FallPhaseTime = 0.0f;
+			// Landed: crawl-to-stand scramble while the capsule holds still (shamblers struggle up).
+			if (ZombieRecoverClip)
+			{
+				PlayTraversalClip(ZombieRecoverClip, false, FMath::FRandRange(0.85f, 1.1f));
+			}
+		}
+	}
+	else if (FallPhaseTime >= FallRecoverPause)
+	{
+		FinishFallTraversal();
+	}
+}
+
+void AEmergeEnemy::FinishFallTraversal()
+{
+	if (UCharacterMovementComponent* Move = GetCharacterMovement())
+	{
+		Move->SetMovementMode(MOVE_Walking);
+		Move->StopMovementImmediately();
+	}
+	bFallTraversing = false;
+	FallPhase = 0;
+	// ZombieCurrentClip has been null since StartFallTraversal: UpdateZombieAnim re-issues the
+	// right speed-switched loop on its next tick (its self-heal path also covers the non-looping
+	// recover clip having finished).
+}
+
+void AEmergeEnemy::PlayTraversalClip(UAnimSequence* Clip, const bool bLooping, const float Rate)
+{
+	USkeletalMeshComponent* MeshComp = GetMesh();
+	if (!MeshComp || !Clip) { return; }
+	MeshComp->PlayAnimation(Clip, bLooping);
+	if (UAnimSingleNodeInstance* Node = MeshComp->GetSingleNodeInstance())
+	{
+		Node->SetPlayRate(Rate);
+	}
+}
+
 float AEmergeEnemy::AuthoredSpeedFromRootMotion(const UAnimSequence* IpcClip, const float FallbackSpeed)
 {
 	if (!IpcClip) { return FallbackSpeed; }
@@ -316,8 +451,9 @@ FString AEmergeEnemy::GetAnimDebug() const
 {
 	const USkeletalMeshComponent* MeshComp = GetMesh();
 	const UAnimInstance* Anim = MeshComp ? MeshComp->GetAnimInstance() : nullptr;
-	return FString::Printf(TEXT("{\"anim\":%s,\"gait\":\"%s\",\"action\":\"%s\",\"spd\":%.0f}"),
+	return FString::Printf(TEXT("{\"anim\":%s,\"gait\":\"%s\",\"action\":\"%s\",\"spd\":%.0f,\"fallTraversing\":%s,\"fallTraversals\":%d}"),
 		Anim ? *FString::Printf(TEXT("\"%s\""), *Anim->GetClass()->GetName()) : TEXT("null"),
 		*GetDesiredGait().GetTagName().ToString(),
-		*GetLocomotionAction().GetTagName().ToString(), GetVelocity().Size2D());
+		*GetLocomotionAction().GetTagName().ToString(), GetVelocity().Size2D(),
+		bFallTraversing ? TEXT("true") : TEXT("false"), FallTraversalCount);
 }
