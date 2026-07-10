@@ -67,6 +67,13 @@ protected:
 	UPROPERTY() TArray<TObjectPtr<UAlsMantlingSettings>> ZombieMantleHigh;
 	UPROPERTY() TArray<TObjectPtr<UAlsMantlingSettings>> ZombieMantleLow;
 
+	// Trip-over pool (RamsterZ TripOverToCrawlIdle clips) — the PRIMARY zombie traversal look:
+	// rolled at ZombieTripChance before the mantle variety bank is consulted at all.
+	UPROPERTY() TArray<TObjectPtr<UAlsMantlingSettings>> ZombieTripHigh;
+	UPROPERTY() TArray<TObjectPtr<UAlsMantlingSettings>> ZombieTripLow;
+	UPROPERTY(EditAnywhere, Category = "Emerge|Zombie", meta = (ClampMin = 0, ClampMax = 1))
+	float ZombieTripChance = 0.75f;
+
 private:
 	float LastChaseSpeedScale = -1.0f;   // last applied scale; re-apply only on >0.02 change (no per-tick churn)
 

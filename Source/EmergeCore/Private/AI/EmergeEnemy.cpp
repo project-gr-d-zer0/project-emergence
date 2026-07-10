@@ -95,6 +95,31 @@ AEmergeEnemy::AEmergeEnemy()
 		}
 	}
 
+	// Trip-over variants (RamsterZ Zombie_Anims TripOverToCrawlIdle, montaged by
+	// emerge_py/make_zombie_tripover.py): the zombie clumsily topples over the obstacle instead
+	// of mantling — the PRIMARY traversal look, kept in their own pool so SelectMantlingSettings
+	// can weight them (ZombieTripChance) instead of an even roll. Clips are in-place (no root
+	// motion), so auto start time is off — ALS mantling drives the capsule along the ledge path
+	// regardless; the montage is purely the body language.
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> TripHighMontage(
+		TEXT("/Game/ZombieAnim/AM_Zombie_Trip_High.AM_Zombie_Trip_High"));
+	if (TripHighMontage.Succeeded())
+	{
+		UAlsMantlingSettings* SettingsObject = CreateDefaultSubobject<UAlsMantlingSettings>(TEXT("ZombieTripHigh1"));
+		SettingsObject->bAutoCalculateStartTime = false;
+		SettingsObject->Montage = TripHighMontage.Object;
+		ZombieTripHigh.Add(SettingsObject);
+	}
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> TripLowMontage(
+		TEXT("/Game/ZombieAnim/AM_Zombie_Trip_Low.AM_Zombie_Trip_Low"));
+	if (TripLowMontage.Succeeded())
+	{
+		UAlsMantlingSettings* SettingsObject = CreateDefaultSubobject<UAlsMantlingSettings>(TEXT("ZombieTripLow1"));
+		SettingsObject->bAutoCalculateStartTime = false;
+		SettingsObject->Montage = TripLowMontage.Object;
+		ZombieTripLow.Add(SettingsObject);
+	}
+
 	// Zombie look default: MoCap Online Zombie Pro mesh (UE4-Mannequin rig). Soft path only —
 	// loaded at runtime in SetupZombieLook via LoadSynchronous, NOT ConstructorHelpers (a hard
 	// find here would drag the asset into memory with the CDO even with bUseZombieLook off).
@@ -252,17 +277,25 @@ void AEmergeEnemy::SetupZombieLook()
 
 UAlsMantlingSettings* AEmergeEnemy::SelectMantlingSettings_Implementation(EAlsMantlingType MantlingType)
 {
-	// Zombie mantle variety: roll a random speed variant PER MANTLE (that roll IS the variance —
-	// the 3 variants are the same ALS montage rate-scaled to 0.50/0.60/0.72). Non-zombie (or an
-	// empty bank, i.e. make_zombie_mantles.py not run yet) falls back to the original single
-	// player-speed settings.
-	const TArray<TObjectPtr<UAlsMantlingSettings>>& Bank =
-		(MantlingType == EAlsMantlingType::Low) ? ZombieMantleLow : ZombieMantleHigh;
-	if (bZombieLookActive && Bank.Num() > 0)
+	// Zombie traversal: trip-over is the primary look — roll it at ZombieTripChance first, then
+	// fall through to the mantle variety bank (3 rate-scaled ALS variants) for the remainder.
+	// Non-zombie (or empty pools, i.e. the emerge_py builders not run yet) falls back to the
+	// original single player-speed settings.
+	const bool bLow = MantlingType == EAlsMantlingType::Low;
+	if (bZombieLookActive)
 	{
-		return Bank[FMath::RandRange(0, Bank.Num() - 1)];
+		const TArray<TObjectPtr<UAlsMantlingSettings>>& Trips = bLow ? ZombieTripLow : ZombieTripHigh;
+		const TArray<TObjectPtr<UAlsMantlingSettings>>& Bank = bLow ? ZombieMantleLow : ZombieMantleHigh;
+		if (Trips.Num() > 0 && (Bank.Num() == 0 || FMath::FRand() < ZombieTripChance))
+		{
+			return Trips[FMath::RandRange(0, Trips.Num() - 1)];
+		}
+		if (Bank.Num() > 0)
+		{
+			return Bank[FMath::RandRange(0, Bank.Num() - 1)];
+		}
 	}
-	return (MantlingType == EAlsMantlingType::Low) ? MantlingSettingsLow : MantlingSettingsHigh;
+	return bLow ? MantlingSettingsLow : MantlingSettingsHigh;
 }
 
 FString AEmergeEnemy::GetAnimDebug() const
