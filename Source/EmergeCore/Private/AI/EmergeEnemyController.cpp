@@ -97,7 +97,9 @@ void AEmergeEnemyController::Tick(float DeltaSeconds)
 	// downstream (awareness ramp, grid stamping, transitions) runs normally on always-seen data;
 	// the seen branch below already stamps the influence grid EVERY update (level-triggered,
 	// verified), so no extra stamp guard is needed.
-	if (bDebugOmniscient) { bTargetVisible = true; }
+	if (bDebugOmniscient) { bTargetVisible = true; Awareness = 1.0f; }   // pins awareness too: the
+	// distance-curved fill never completes against a fleeing target (measured: zombie stuck
+	// Suspicious at 3000+uu while "seeing" him) — omniscient means RELENTLESS, not just sighted.
 
 	// Point-blank presence: within PresenceRadius with clear line-of-sight counts as seen even
 	// outside the vision cone (measured 2026-07-09: enemy gave up standing 69uu from the player

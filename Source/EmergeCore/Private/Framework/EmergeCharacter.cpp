@@ -743,17 +743,31 @@ void AEmergeCharacter::TickEvade(const float DeltaSeconds)
 		EvadeBiasRerollTime = World->GetTimeSeconds() + FMath::FRandRange(5.0f, 10.0f);
 	}
 
-	// Replan on timer — relaxed cadence while lazily jogging outside the comfort band — OR
-	// immediately when the threat crosses under the danger radius (event, don't wait the timer out).
+	// Beyond the comfort band: STOP and wait — don't jog to the horizon (measured: gap grew
+	// 1075->8842uu in 25s; a one-way footrace is not avoidance). Hysteresis at 90% so the
+	// boundary doesn't flutter. Evasion re-engages the moment the threat closes back in.
+	if (EvadeThreatDist > EvadeComfortRadius)
+	{
+		if (bNavigating && EvadeThreatDist > EvadeComfortRadius * 1.1f)
+		{
+			StopNavigating();
+			EvadeGoal = FVector::ZeroVector;   // comfort reached: forget the old flee goal
+		}
+		EvadeReplanTimer = 0.0f;               // replan instantly on re-entry
+		bEvadeWasInDanger = false;
+		return;
+	}
+
+	// Replan on timer OR immediately when the threat crosses under the danger radius (event,
+	// don't wait the timer out).
 	const bool bInDanger = EvadeThreatDist < EvadeDangerRadius;
 	const bool bDangerCrossed = bInDanger && !bEvadeWasInDanger;
 	bEvadeWasInDanger = bInDanger;
 	EvadeReplanTimer -= DeltaSeconds;
 	if (EvadeReplanTimer <= 0.0f || bDangerCrossed)
 	{
-		const float Cadence = (EvadeThreatDist > EvadeComfortRadius) ? 1.0f : EvadeReplanSeconds;
 		// Failed replan (no candidates at all): retry quickly instead of standing still a full cadence.
-		EvadeReplanTimer = ReplanEvade(ThreatPos) ? Cadence : 0.25f;
+		EvadeReplanTimer = ReplanEvade(ThreatPos) ? EvadeReplanSeconds : 0.25f;
 	}
 }
 
