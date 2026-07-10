@@ -84,10 +84,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Emerge|Nav")
 	void StopEvading();
 
-	// Patrol-evade (strategic layer v2): evasion's "what to do when comfortable". While the threat
-	// stays beyond EvadeComfortRadius the character laps the checkpoint circuit (endless, wrapping);
-	// the moment it closes inside, the existing evasion takes over untouched, and on re-clearing he
-	// resumes toward the CURRENT checkpoint. Implies StartEvading(Threat).
+	// Patrol pace-car (strategic layer v2): deterministic checkpoint lapping paced against the
+	// threat, like a pace car holding the field. ALWAYS walking toward the CURRENT checkpoint —
+	// no comfort stops, no flee-goal replans, no candidate scoring. Only three modulations:
+	// BURST (threat under EvadeDangerRadius -> Running gait until it clears PatrolBurstClearRadius,
+	// still toward the checkpoint, never a flee goal), WAIT (threat beyond EvadeTetherRadius ->
+	// stand until it closes under PatrolWaitResumeRadius, then resume the SAME checkpoint), and
+	// the cornered tripwire (threat on top of us + escape mostly blocked -> tangential escape leg,
+	// the ONE evade override kept for safety). Implies StartEvading(Threat); plain StartEvading
+	// (non-patrol) behavior is untouched.
 	UFUNCTION(BlueprintCallable, Category = "Emerge|Nav")
 	void StartPatrolEvade(const TArray<FVector>& Checkpoints, AActor* Threat);
 	UFUNCTION(BlueprintCallable, Category = "Emerge|Nav")
@@ -99,21 +104,22 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") TArray<float> EvadeRingRadii = { 600.0f, 900.0f };
 	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") int32 EvadeCandidatesPerRing = 10;
 	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") float EvadeHysteresisPct = 0.15f;    // keep current goal unless the new best beats it by this
-	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") float PatrolArriveRadius = 200.0f;   // within: advance to the next checkpoint
+	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") float PatrolArriveRadius = 250.0f;   // within: advance to the next checkpoint (wrap)
 
-	// Patrol-evade pacing: use the WALKING gait for the whole patrol-evade (walk 175 vs zombie
-	// shamble 150 = tense slow pursuit instead of trivially outrunning it). The desired gait held
-	// before StartPatrolEvade is restored on StopPatrolEvade/StopEvading.
+	// Patrol pacing: use the WALKING gait for the whole patrol (walk 175 vs zombie shamble 150 =
+	// tense slow pursuit instead of trivially outrunning it). The desired gait held before
+	// StartPatrolEvade is restored on StopPatrolEvade/StopEvading.
 	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") bool bPatrolWalkGait = true;
-	// Track-tied evasion: while patrolling, ReplanEvade candidates are constrained to a cone of
-	// this half-angle (deg) around the direction self->CURRENT checkpoint — evasion becomes "keep
-	// moving along the circuit away from the zombie", dragging it across the obstacle stations.
-	// The cornered tripwire stays unrestricted (safety beats track adherence), and a fully blocked
-	// cone falls back to the unrestricted best candidate rather than stalling.
-	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") float EvadeTrackConeDeg = 70.0f;
-	// Tether: while patrolling, if the threat falls further behind than this the NPC STOPS and
-	// waits (even mid-checkpoint-leg, same idea as the comfort stop) so he never laps away from it.
-	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") float EvadeTetherRadius = 1400.0f;
+	// WAIT threshold: while patrolling, if the threat falls further behind than this the NPC STOPS
+	// and stands (even mid-checkpoint-leg) so he never laps away from the chase; he resumes toward
+	// the SAME checkpoint once the threat closes back under PatrolWaitResumeRadius.
+	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") float EvadeTetherRadius = 1200.0f;
+	// WAIT release: the threat must close back under this before a waiting patroller moves again
+	// (hysteresis so the wait boundary doesn't flutter).
+	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") float PatrolWaitResumeRadius = 1000.0f;
+	// BURST release: a burst (Running, triggered by the threat closing under EvadeDangerRadius)
+	// drops back to Walking only once the threat falls beyond this (hysteresis).
+	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") float PatrolBurstClearRadius = 700.0f;
 
 	// Structured spatial snapshot for autonomous testing: player movement, game camera POV,
 	// LIDAR rays (walls/floor/ceiling distances + hit names), and nearby actors. Read via Remote Control.
@@ -167,11 +173,14 @@ private:
 	void TickEvade(float DeltaSeconds);
 	bool ReplanEvade(const FVector& ThreatPos);
 
-	// Patrol-evade state.
+	// Patrol pace-car state.
 	TArray<FVector> PatrolPoints;
 	int32 PatrolIdx = 0;            // telemetry: current checkpoint
 	bool bPatrolling = false;
-	bool bPatrolLegActive = false;  // the current NavigateTo goal is a checkpoint (not a flee goal)
+	bool bPatrolLegActive = false;  // the current NavigateTo goal is a checkpoint (not an escape leg)
+	bool bPatrolBurst = false;      // telemetry + hysteresis: BURST engaged (Running until clear)
+	bool bPatrolWait = false;       // telemetry + hysteresis: WAIT engaged (standing until threat closes)
 	FGameplayTag PrePatrolDesiredGait;      // desired gait before the patrol walk-gait override
 	bool bPatrolGaitOverridden = false;     // walk-gait override engaged (restore on stop)
+	void TickPatrolPaceCar(const FVector& ThreatPos, float DeltaSeconds);
 };
