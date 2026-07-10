@@ -60,6 +60,10 @@ protected:
 	// the scripted StartFallTraversal topple instead (no anim instance = no mantle montages).
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float HopTriggerDist = 90.0f;
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float HopClearHeightUu = 140.0f;   // max mantleable band
+	// Minimum obstacle-top height above feet for the zombie fall traversal. Anything lower (street
+	// curbs, kerbstones, low debris — the knee probe at ~45uu still hits their faces) is a plain
+	// CharacterMovement step-up (MaxStepHeight = 50 on the zombie), NEVER a traversal.
+	UPROPERTY(EditAnywhere, Category = "Emerge|Traversal") float MinTraversalHeightUu = 60.0f;
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float HopCooldownSeconds = 1.2f;
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float GiveUpSeconds = 15.0f;
 

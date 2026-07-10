@@ -84,12 +84,22 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Emerge|Nav")
 	void StopEvading();
 
+	// Patrol-evade (strategic layer v2): evasion's "what to do when comfortable". While the threat
+	// stays beyond EvadeComfortRadius the character laps the checkpoint circuit (endless, wrapping);
+	// the moment it closes inside, the existing evasion takes over untouched, and on re-clearing he
+	// resumes toward the CURRENT checkpoint. Implies StartEvading(Threat).
+	UFUNCTION(BlueprintCallable, Category = "Emerge|Nav")
+	void StartPatrolEvade(const TArray<FVector>& Checkpoints, AActor* Threat);
+	UFUNCTION(BlueprintCallable, Category = "Emerge|Nav")
+	void StopPatrolEvade();
+
 	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") float EvadeReplanSeconds = 0.5f;
 	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") float EvadeComfortRadius = 900.0f;   // beyond: relaxed cadence (1s), lazy jog
 	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") float EvadeDangerRadius = 450.0f;    // crossing under: replan NOW (event, no timer wait)
 	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") TArray<float> EvadeRingRadii = { 600.0f, 900.0f };
 	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") int32 EvadeCandidatesPerRing = 10;
 	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") float EvadeHysteresisPct = 0.15f;    // keep current goal unless the new best beats it by this
+	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") float PatrolArriveRadius = 200.0f;   // within: advance to the next checkpoint
 
 	// Structured spatial snapshot for autonomous testing: player movement, game camera POV,
 	// LIDAR rays (walls/floor/ceiling distances + hit names), and nearby actors. Read via Remote Control.
@@ -142,4 +152,10 @@ private:
 	bool bEvadeCornered = false;        // telemetry: tangential-escape tripwire fired on last replan
 	void TickEvade(float DeltaSeconds);
 	bool ReplanEvade(const FVector& ThreatPos);
+
+	// Patrol-evade state.
+	TArray<FVector> PatrolPoints;
+	int32 PatrolIdx = 0;            // telemetry: current checkpoint
+	bool bPatrolling = false;
+	bool bPatrolLegActive = false;  // the current NavigateTo goal is a checkpoint (not a flee goal)
 };

@@ -218,6 +218,10 @@ void AEmergeEnemyController::TryTraversalHop(APawn* Self, float DeltaSeconds)
 			FHitResult TopHit;
 			if (!GetWorld()->LineTraceSingleByChannel(TopHit, TopStart,
 				TopStart - FVector(0.0f, 0.0f, HopClearHeightUu + 15.0f), ECC_Visibility, QP)) { return; }
+			// Curb gate: sub-threshold obstacles (street curbs / kerb-height furniture) are step-ups
+			// (MaxStepHeight handles them during normal walking), never traversals — early out BEFORE
+			// any cooldown/telemetry is touched so a real wall right after still triggers instantly.
+			if (TopHit.ImpactPoint.Z - Feet.Z < MinTraversalHeightUu) { return; }
 			// Far-side floor: forward of the lip, straight down. No floor within 250uu below the
 			// top = ledge/pit, abort — zombies topple over walls, they don't leap into holes.
 			const FVector LandStart = TopHit.ImpactPoint + Ahead * 120.0f + FVector(0.0f, 0.0f, 20.0f);

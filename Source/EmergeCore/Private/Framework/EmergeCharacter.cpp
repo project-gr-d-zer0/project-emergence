@@ -611,12 +611,12 @@ FString AEmergeCharacter::GetNavProgress()
 	const float PathRem = bNavigating ? UEmergeNavPathLen::RemainingLength(NavPath, NavIdx, Cur) : 0.0f;
 	const float Eta = UEmergeNavEta::EtaSeconds(PathRem, GetVelocity().Size2D());
 	return FString::Printf(
-		TEXT("{\"state\":\"%s\",\"navigating\":%s,\"waypoint\":%d,\"total\":%d,\"distRemaining\":%.0f,\"pathRemaining\":%.0f,\"etaSeconds\":%.1f,\"makingProgress\":%s,\"repaths\":%d,\"vaults\":%d,\"stuckTime\":%.1f,\"turnErrDeg\":%.0f,\"stamina\":%.0f,\"sprintExhausted\":%s,\"evading\":%s,\"threatDist\":%d,\"evadeScore\":%d,\"cornered\":%s}"),
+		TEXT("{\"state\":\"%s\",\"navigating\":%s,\"waypoint\":%d,\"total\":%d,\"distRemaining\":%.0f,\"pathRemaining\":%.0f,\"etaSeconds\":%.1f,\"makingProgress\":%s,\"repaths\":%d,\"vaults\":%d,\"stuckTime\":%.1f,\"turnErrDeg\":%.0f,\"stamina\":%.0f,\"sprintExhausted\":%s,\"evading\":%s,\"threatDist\":%d,\"evadeScore\":%d,\"cornered\":%s,\"patrol\":%s,\"cp\":%d}"),
 		*NavState, bNavigating ? TEXT("true") : TEXT("false"), NavIdx, NavPath.Num(), DistRem, PathRem, Eta,
 		bNavMakingProgress ? TEXT("true") : TEXT("false"), NavRepathCount, NavVaultCount, NavStuckTime, NavTurnErrorDeg,
 		Stamina ? Stamina->Stamina : -1.0f, bSprintExhausted ? TEXT("true") : TEXT("false"),
 		bEvading ? TEXT("true") : TEXT("false"), (int32)EvadeThreatDist, (int32)EvadeGoalScore,
-		bEvadeCornered ? TEXT("true") : TEXT("false"));
+		bEvadeCornered ? TEXT("true") : TEXT("false"), bPatrolling ? TEXT("true") : TEXT("false"), PatrolIdx);
 }
 
 void AEmergeCharacter::RestoreNavFacing()
@@ -724,6 +724,25 @@ void AEmergeCharacter::StopEvading()
 	StopNavigating();
 }
 
+void AEmergeCharacter::StartPatrolEvade(const TArray<FVector>& Checkpoints, AActor* Threat)
+{
+	if (Checkpoints.Num() == 0 || !Threat) { return; }
+	PatrolPoints = Checkpoints;
+	PatrolIdx = 0;
+	bPatrolling = true;
+	bPatrolLegActive = false;   // TickEvade's comfort branch issues the first leg
+	StartEvading(Threat);
+}
+
+void AEmergeCharacter::StopPatrolEvade()
+{
+	bPatrolling = false;
+	bPatrolLegActive = false;
+	PatrolPoints.Reset();
+	PatrolIdx = 0;
+	StopEvading();   // StartPatrolEvade implied StartEvading, so stop tears both layers down
+}
+
 void AEmergeCharacter::TickEvade(const float DeltaSeconds)
 {
 	UWorld* World = GetWorld();
@@ -743,12 +762,30 @@ void AEmergeCharacter::TickEvade(const float DeltaSeconds)
 		EvadeBiasRerollTime = World->GetTimeSeconds() + FMath::FRandRange(5.0f, 10.0f);
 	}
 
-	// Beyond the comfort band: STOP and wait — don't jog to the horizon (measured: gap grew
-	// 1075->8842uu in 25s; a one-way footrace is not avoidance). Hysteresis at 90% so the
-	// boundary doesn't flutter. Evasion re-engages the moment the threat closes back in.
+	// Beyond the comfort band: patrol the circuit if patrolling, else STOP and wait — don't jog
+	// to the horizon (measured: gap grew 1075->8842uu in 25s; a one-way footrace is not
+	// avoidance). Hysteresis at 90% so the boundary doesn't flutter. Evasion re-engages the
+	// moment the threat closes back in.
 	if (EvadeThreatDist > EvadeComfortRadius)
 	{
-		if (bNavigating && EvadeThreatDist > EvadeComfortRadius * 1.1f)
+		if (bPatrolling && PatrolPoints.IsValidIndex(PatrolIdx))
+		{
+			// Patrol layer: comfortable = lap the checkpoints instead of standing around.
+			if (FVector::Dist2D(GetActorLocation(), PatrolPoints[PatrolIdx]) <= PatrolArriveRadius)
+			{
+				PatrolIdx = (PatrolIdx + 1) % PatrolPoints.Num();   // wrap: endless laps
+				EvadeGoal = FVector::ZeroVector;
+				bPatrolLegActive = NavigateTo(PatrolPoints[PatrolIdx]);
+			}
+			// (Re)issue the leg when idle; redirecting an in-flight FLEE goal back to the CURRENT
+			// checkpoint waits out the same 10% hysteresis as stop-and-wait (no boundary flutter).
+			else if (!bNavigating || (!bPatrolLegActive && EvadeThreatDist > EvadeComfortRadius * 1.1f))
+			{
+				EvadeGoal = FVector::ZeroVector;   // forget the old flee goal; patrol owns the leg
+				bPatrolLegActive = NavigateTo(PatrolPoints[PatrolIdx]);
+			}
+		}
+		else if (bNavigating && EvadeThreatDist > EvadeComfortRadius * 1.1f)
 		{
 			StopNavigating();
 			EvadeGoal = FVector::ZeroVector;   // comfort reached: forget the old flee goal
@@ -757,6 +794,7 @@ void AEmergeCharacter::TickEvade(const float DeltaSeconds)
 		bEvadeWasInDanger = false;
 		return;
 	}
+	bPatrolLegActive = false;   // inside the comfort band: evasion owns navigation again
 
 	// Replan on timer OR immediately when the threat crosses under the danger radius (event,
 	// don't wait the timer out).

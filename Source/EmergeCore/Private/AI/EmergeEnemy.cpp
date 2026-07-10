@@ -228,6 +228,12 @@ void AEmergeEnemy::SetupZombieLook()
 	{
 		Move->bOrientRotationToMovement = true;   // ALS forbids this at startup, but ALS rotation is dead now
 		Move->RotationRate = FRotator(0.0f, 240.0f, 0.0f);
+		// Curbs/street furniture are STEP-UPS, never traversals: make sure zombie-look mode walks
+		// straight over kerb-height geometry (~20-50uu) so the controller's fall traversal (gated
+		// at MinTraversalHeightUu) never has to fire on it. Nothing else in this mode touches step
+		// height (the gait table/SetChaseSpeedScale only rewrite speeds + accel curves), but set it
+		// explicitly rather than trusting the ALS default.
+		Move->MaxStepHeight = 50.0f;
 	}
 	bZombieLookActive = true;
 }
@@ -294,6 +300,12 @@ bool AEmergeEnemy::StartFallTraversal(const FVector& ObstacleTopPoint, const FVe
 	// (a scripted lerp starting mid-fall would read as a teleport-glide).
 	UCharacterMovementComponent* Move = GetCharacterMovement();
 	if (!bZombieLookActive || bFallTraversing || !Move || !Move->IsMovingOnGround()) { return false; }
+
+	// Belt-and-suspenders height gate (the controller already gates at MinTraversalHeightUu):
+	// curbs/street furniture below ~55uu are step-ups (MaxStepHeight = 50 in SetupZombieLook),
+	// never traversals — a scripted topple over a kerb reads as a broken animation loop.
+	const float FeetZ = GetActorLocation().Z - GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	if (ObstacleTopPoint.Z - FeetZ < 55.0f) { return false; }
 
 	// Per-traversal randomization: one clip of each stage + rates + recovery pause, rolled fresh
 	// every wall so a horde toppling the same fence doesn't sync up.
