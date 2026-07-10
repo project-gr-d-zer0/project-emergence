@@ -291,6 +291,12 @@ FString AEmergeCharacter::SenseWorld()
 	return WorldSense ? WorldSense->SenseWorld() : TEXT("{\"error\":\"no world sense\"}");
 }
 
+FString AEmergeCharacter::SenseSkeleton(const FString& NameFilter)
+{
+	UEmergeWorldSense* WorldSense = GetWorld() ? GetWorld()->GetSubsystem<UEmergeWorldSense>() : nullptr;
+	return WorldSense ? WorldSense->SenseSkeleton(NameFilter) : TEXT("{\"error\":\"no world sense\"}");
+}
+
 FString AEmergeCharacter::SenseEnvironment(float Radius)
 {
 	UWorld* World = GetWorld();

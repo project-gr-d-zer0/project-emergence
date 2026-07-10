@@ -85,6 +85,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Emerge|Sensor")
 	FString SenseWorld();
 
+	// Full-skeleton snapshot of any character (empty filter = the player) — forwarded for RC.
+	UFUNCTION(BlueprintCallable, Category = "Emerge|Sensor")
+	FString SenseSkeleton(const FString& NameFilter);
+
 private:
 	// Persistent world-memory occupancy grid (2m cells): key=packed(cx,cy), val 1=free 2=obstacle.
 	TMap<int64, uint8> OccGrid;

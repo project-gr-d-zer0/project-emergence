@@ -52,11 +52,10 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float CornerFullDeg = 180.0f;   // deg/s: at/above = MinScale
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float CornerMinScale = 0.65f;
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float CornerRecoverSeconds = 0.7f;  // dip hold: juke opens a real gap
-	// Traversal mantle (plain-ACharacter zombie, same MECHANIC as the player's ALS mantle):
-	// knee-blocked + head-clear ahead -> scripted climb up-and-over (a launch read as a super-jump).
+	// Traversal (ALS zombie): knee-blocked + head-clear ahead -> the character's own ALS
+	// StartMantling — the IDENTICAL mantle the player performs.
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float HopTriggerDist = 90.0f;
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float HopClearHeightUu = 140.0f;   // max mantleable band
-	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float MantleDuration = 0.8f;       // climb time
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float HopCooldownSeconds = 1.2f;
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float GiveUpSeconds = 15.0f;
 
@@ -74,11 +73,6 @@ private:
 	FVector2D PrevHeading = FVector2D::ZeroVector;
 	float HopCooldown = 0.0f;
 	int32 HopCount = 0;         // telemetry (mantles performed; JSON key stays "hops")
-	FVector MantleStart = FVector::ZeroVector;
-	FVector MantleMid = FVector::ZeroVector;
-	FVector MantleEnd = FVector::ZeroVector;
-	float MantleAlpha = -1.0f;  // <0 = inactive
-	float MantleLiveDuration = 0.8f;   // per-mantle: matched to the vault clip length
 	void UpdateCorneringScale(const APawn* Self, float DeltaSeconds);
 	void TryTraversalHop(APawn* Self, float DeltaSeconds);
 	void SetSpeed(float Speed);

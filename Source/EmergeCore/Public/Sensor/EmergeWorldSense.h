@@ -27,11 +27,22 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Emerge|Sensor")
 	FString SenseWorld();
 
+	// FULL skeleton of one character (actor name contains NameFilter; empty = the player):
+	// every bone's world position + rotation. Burst-poll during traversal/anim windows to
+	// reconstruct motion numerically (pelvis pitch = flip detection, limb trajectories, etc).
+	UFUNCTION(BlueprintCallable, Category = "Emerge|Sensor")
+	FString SenseSkeleton(const FString& NameFilter);
+
 private:
 	TMap<FObjectKey, float> StuckSeconds;
 	// Anim-liveness oracle: hand-bone movement relative to the actor (uu/s, smoothed). ~0 while the
 	// pawn moves = frozen ref pose even if an anim instance is present.
 	TMap<FObjectKey, FVector> PrevHandRel;
 	TMap<FObjectKey, float> BoneMotionUu;
+	// Foot-slide oracle ("unnatural run"): horizontal drift of the planted (lower) foot, uu/s smoothed.
+	// A clean gait plants feet (~0 while grounded); fixed-rate loops at wrong speeds skate visibly.
+	TMap<FObjectKey, FVector> PrevPlantedFoot;
+	TMap<FObjectKey, float> FootSlideUu;
+	void UpdateBoneOracles(const FObjectKey& Key, const APawn* P, float DeltaTime);
 	bool bReady = false;
 };

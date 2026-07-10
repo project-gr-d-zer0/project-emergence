@@ -1,5 +1,6 @@
 #include "AI/EmergeEnemyController.h"
 #include "AI/EmergeEnemy.h"
+#include "Utility/AlsGameplayTags.h"
 #include "Perception/AIPerceptionComponent.h"
 #include "Perception/AISenseConfig_Sight.h"
 #include "Perception/AISense_Sight.h"
@@ -131,40 +132,21 @@ void AEmergeEnemyController::Tick(float DeltaSeconds)
 
 void AEmergeEnemyController::TryTraversalHop(APawn* Self, float DeltaSeconds)
 {
-	ACharacter* SelfChar = Cast<ACharacter>(Self);
-	if (!SelfChar) { return; }
-	UCharacterMovementComponent* Move = SelfChar->GetCharacterMovement();
-	if (!Move) { return; }
-
-	// Active scripted mantle: drive the capsule up to the obstacle top, then forward-and-down over
-	// it — the same climb-over mechanic the player's ALS mantle performs, without ALS.
-	if (MantleAlpha >= 0.0f)
-	{
-		MantleAlpha = FMath::Min(MantleAlpha + ((MantleLiveDuration > 0.0f) ? DeltaSeconds / MantleLiveDuration : 1.0f), 1.0f);
-		const FVector P = (MantleAlpha < 0.45f)
-			? FMath::Lerp(MantleStart, MantleMid, MantleAlpha / 0.45f)
-			: FMath::Lerp(MantleMid, MantleEnd, (MantleAlpha - 0.45f) / 0.55f);
-		SelfChar->SetActorLocation(P, false);
-		if (MantleAlpha >= 1.0f)
-		{
-			Move->SetMovementMode(MOVE_Walking);
-			Move->Velocity = FVector::ZeroVector;
-			MantleAlpha = -1.0f;
-		}
-		return;
-	}
-
 	HopCooldown = FMath::Max(0.0f, HopCooldown - DeltaSeconds);
-	if (HopCooldown > 0.0f || GetMoveStatus() != EPathFollowingStatus::Moving || !Move->IsMovingOnGround()) { return; }
+	AAlsCharacter* AlsChar = Cast<AAlsCharacter>(Self);
+	if (!AlsChar || HopCooldown > 0.0f || GetMoveStatus() != EPathFollowingStatus::Moving) { return; }
+	UCharacterMovementComponent* Move = AlsChar->GetCharacterMovement();
+	if (!Move || !Move->IsMovingOnGround()) { return; }
+	if (AlsChar->GetLocomotionAction() == AlsLocomotionActionTags::Mantling) { return; }
 
 	// Probe along travel direction (velocity when moving, facing when pinned against the obstacle).
-	const FVector Vel = SelfChar->GetVelocity();
+	const FVector Vel = AlsChar->GetVelocity();
 	FVector Ahead = (Vel.SizeSquared2D() > 400.0f) ? FVector(Vel.X, Vel.Y, 0.0f).GetSafeNormal()
-	                                               : FVector(SelfChar->GetActorForwardVector().X, SelfChar->GetActorForwardVector().Y, 0.0f).GetSafeNormal();
+	                                               : FVector(AlsChar->GetActorForwardVector().X, AlsChar->GetActorForwardVector().Y, 0.0f).GetSafeNormal();
 	if (Ahead.IsNearlyZero()) { return; }
-	const float HalfH = SelfChar->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
-	const FVector Feet = SelfChar->GetActorLocation() - FVector(0.0f, 0.0f, HalfH);
-	FCollisionQueryParams QP(SCENE_QUERY_STAT(EmergeHopProbe), false, SelfChar);
+	const float HalfH = AlsChar->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	const FVector Feet = AlsChar->GetActorLocation() - FVector(0.0f, 0.0f, HalfH);
+	FCollisionQueryParams QP(SCENE_QUERY_STAT(EmergeHopProbe), false, AlsChar);
 	FHitResult LowHit, HighHit;
 	const bool bLow = GetWorld()->LineTraceSingleByChannel(LowHit,
 		Feet + FVector(0, 0, 45.0f), Feet + FVector(0, 0, 45.0f) + Ahead * HopTriggerDist, ECC_Visibility, QP);
@@ -174,31 +156,12 @@ void AEmergeEnemyController::TryTraversalHop(APawn* Self, float DeltaSeconds)
 	const float LowDist = bLow ? LowHit.Distance : -1.0f;
 	if (UEmergeHop::ShouldHop(LowDist, HopTriggerDist, !bHigh, true))
 	{
-		// Obstacle top: downward trace just past the face; landing floor: downward trace beyond it.
-		const FVector TopProbe = LowHit.ImpactPoint + Ahead * 25.0f + FVector(0, 0, HopClearHeightUu);
-		FHitResult TopHit;
-		if (!GetWorld()->LineTraceSingleByChannel(TopHit, TopProbe, TopProbe - FVector(0, 0, HopClearHeightUu + 60.0f), ECC_Visibility, QP))
+		// The IDENTICAL mantle the player uses — ALS traces/validates the ledge itself.
+		if (AlsChar->IsMantlingAllowedToStart() && AlsChar->StartMantling())
 		{
-			return;
+			HopCooldown = HopCooldownSeconds;
+			++HopCount;
 		}
-		const FVector BeyondProbe = LowHit.ImpactPoint + Ahead * 190.0f + FVector(0, 0, HopClearHeightUu);
-		FHitResult FloorHit;
-		const bool bFloor = GetWorld()->LineTraceSingleByChannel(FloorHit, BeyondProbe, BeyondProbe - FVector(0, 0, HopClearHeightUu + 400.0f), ECC_Visibility, QP);
-		MantleStart = SelfChar->GetActorLocation();
-		MantleMid = FVector(TopHit.ImpactPoint.X, TopHit.ImpactPoint.Y, TopHit.ImpactPoint.Z + HalfH + 4.0f);
-		MantleEnd = bFloor ? (FloorHit.ImpactPoint + FVector(0, 0, HalfH + 2.0f))
-		                   : (MantleStart + Ahead * 220.0f);
-		Move->SetMovementMode(MOVE_Flying);
-		Move->Velocity = FVector::ZeroVector;
-		MantleAlpha = 0.0f;
-		MantleLiveDuration = MantleDuration;
-		if (AEmergeEnemy* Enemy = Cast<AEmergeEnemy>(SelfChar))
-		{
-			const float ClipLen = Enemy->PlayMantleAnim();
-			if (ClipLen > 0.2f) { MantleLiveDuration = ClipLen; }
-		}
-		HopCooldown = HopCooldownSeconds;
-		++HopCount;
 	}
 }
 
@@ -253,6 +216,13 @@ void AEmergeEnemyController::UpdateCorneringScale(const APawn* Self, float Delta
 
 void AEmergeEnemyController::SetSpeed(float Speed)
 {
+	// ALS owns MaxWalkSpeed (drives it from the character's gait settings): map the requested speed
+	// to a gait. The zombie's own movement settings put Walking=shamble 150 and Running=chase 560.
+	if (AAlsCharacter* AlsChar = Cast<AAlsCharacter>(GetPawn()))
+	{
+		AlsChar->SetDesiredGait(Speed > 300.0f ? AlsGaitTags::Running : AlsGaitTags::Walking);
+		return;
+	}
 	if (ACharacter* C = Cast<ACharacter>(GetPawn()))
 	{
 		if (UCharacterMovementComponent* M = C->GetCharacterMovement()) { M->MaxWalkSpeed = Speed; }
