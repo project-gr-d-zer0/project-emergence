@@ -173,6 +173,10 @@ void AEmergeEnemy::BeginPlay()
 	{
 		SetupZombieLook();
 	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("EMERGE_ZLOOK: %s: bUseZombieLook=false - staying on the ALS body"), *GetName());
+	}
 }
 
 void AEmergeEnemy::Tick(const float DeltaSeconds)
@@ -190,11 +194,14 @@ void AEmergeEnemy::Tick(const float DeltaSeconds)
 
 void AEmergeEnemy::SetupZombieLook()
 {
+	UE_LOG(LogTemp, Warning, TEXT("EMERGE_ZLOOK: %s: SetupZombieLook begin (mesh path %s, idle=%d walk=%d chase=%d clip paths)"),
+		*GetName(), *ZombieMesh.ToString(), IdleClips.Num(), WalkClips.Num(), ChaseClips.Num());
 	USkeletalMeshComponent* MeshComp = GetMesh();
 	USkeletalMesh* Zombie = ZombieMesh.LoadSynchronous();
 	if (!MeshComp || !Zombie)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("%s: zombie mesh failed to load - keeping the ALS body"), *GetName());
+		UE_LOG(LogTemp, Warning, TEXT("EMERGE_ZLOOK: %s: FAIL - %s - keeping the ALS body"),
+			*GetName(), !MeshComp ? TEXT("GetMesh() is null") : TEXT("ZombieMesh.LoadSynchronous() returned null"));
 		return;
 	}
 
@@ -204,7 +211,9 @@ void AEmergeEnemy::SetupZombieLook()
 	ZombieChaseClip = ChaseClips.Num() > 0 ? ChaseClips[FMath::RandRange(0, ChaseClips.Num() - 1)].LoadSynchronous() : nullptr;
 	if (!ZombieWalkClip || !ZombieChaseClip)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("%s: zombie clips failed to load - keeping the ALS body"), *GetName());
+		UE_LOG(LogTemp, Warning, TEXT("EMERGE_ZLOOK: %s: FAIL - clips failed to load (idle=%s walk=%s chase=%s) - keeping the ALS body"),
+			*GetName(), ZombieIdleClip ? TEXT("ok") : TEXT("NULL"),
+			ZombieWalkClip ? TEXT("ok") : TEXT("NULL"), ZombieChaseClip ? TEXT("ok") : TEXT("NULL"));
 		return;
 	}
 
@@ -221,6 +230,13 @@ void AEmergeEnemy::SetupZombieLook()
 	// movement/settings logic (gait table, cornering scale, CMC driving) is untouched.
 	MeshComp->SetSkeletalMesh(Zombie);
 	MeshComp->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+	// THE zombie-anim fix: ALS's constructor leaves the mesh on OnlyTickMontagesWhenNotRendered,
+	// which is correct for its anim-BP + montage pipeline but starves a SINGLE-NODE player — the
+	// sequence is not a montage, so the pose is only ever ticked while bRecentlyRendered, and the
+	// node otherwise sits "playing" at a frozen position (measured live: position never advanced).
+	// ALS normally manages this option per tick in RefreshMeshProperties, but that path is dead in
+	// zombie-look mode (AnimationInstance reset). Single-node playback must always tick.
+	MeshComp->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
 	MeshComp->SetUsingAbsoluteRotation(false);   // belt-and-braces: ALS flips this in its tick
 	MeshComp->SetRelativeLocationAndRotation(FVector(0.0f, 0.0f, -92.0f), FRotator(0.0f, -90.0f, 0.0f));
 	AnimationInstance.Reset();   // make the ALS-tick early-return deterministic (no GC-timing limbo)
@@ -236,6 +252,13 @@ void AEmergeEnemy::SetupZombieLook()
 		Move->MaxStepHeight = 50.0f;
 	}
 	bZombieLookActive = true;
+	UE_LOG(LogTemp, Warning,
+		TEXT("EMERGE_ZLOOK: %s: mesh swapped OK (mesh=%s skeleton=%s), clips idle=%s walk=%s chase=%s, authored speeds walk=%.1f chase=%.1f uu/s"),
+		*GetName(), *Zombie->GetName(),
+		Zombie->GetSkeleton() ? *Zombie->GetSkeleton()->GetName() : TEXT("NULL"),
+		ZombieIdleClip ? *ZombieIdleClip->GetName() : TEXT("none"),
+		*ZombieWalkClip->GetName(), *ZombieChaseClip->GetName(),
+		ZombieWalkAuthoredSpeed, ZombieChaseAuthoredSpeed);
 }
 
 void AEmergeEnemy::UpdateZombieAnim()
@@ -244,7 +267,11 @@ void AEmergeEnemy::UpdateZombieAnim()
 	// speed-switched loop logic below would stomp them the same tick it ran.
 	if (bFallTraversing) { return; }
 	USkeletalMeshComponent* MeshComp = GetMesh();
-	if (!MeshComp) { return; }
+	if (!MeshComp)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("EMERGE_ZLOOK: %s: UpdateZombieAnim - GetMesh() is null"), *GetName());
+		return;
+	}
 
 	// ALS's gait refresh is dead in this mode (see SetupZombieLook): push the desired gait (set by
 	// the controller's SetSpeed) straight into the movement component, which still recomputes
@@ -269,16 +296,30 @@ void AEmergeEnemy::UpdateZombieAnim()
 		DesiredClip = ZombieChaseClip;
 		AuthoredSpeed = ZombieChaseAuthoredSpeed;
 	}
-	if (!DesiredClip) { return; }
+	if (!DesiredClip)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("EMERGE_ZLOOK: %s: UpdateZombieAnim - no desired clip (idle/walk/chase all null?)"), *GetName());
+		return;
+	}
 
 	// Re-issue on CHANGE only — plus whenever the node is not playing (self-heal, mirrors the old
 	// proven pattern: anything that silently stops the single node gets restarted next tick).
 	UAnimSingleNodeInstance* Node = MeshComp->GetSingleNodeInstance();
 	if (DesiredClip != ZombieCurrentClip || !Node || !Node->IsPlaying())
 	{
+		UE_LOG(LogTemp, Warning, TEXT("EMERGE_ZLOOK: %s: PlayAnimation(%s) (reason: %s)"), *GetName(), *DesiredClip->GetName(),
+			DesiredClip != ZombieCurrentClip ? TEXT("clip switch") : (!Node ? TEXT("no single-node instance") : TEXT("node stopped - self-heal")));
 		MeshComp->PlayAnimation(DesiredClip, true);
 		ZombieCurrentClip = DesiredClip;
 		Node = MeshComp->GetSingleNodeInstance();
+		if (!Node)
+		{
+			// THE silent-failure path: PlayAnimation could not create a single-node instance
+			// (skeleton missing/incompatible, mesh unset...) — the mesh would hold ref pose forever.
+			UE_LOG(LogTemp, Warning, TEXT("EMERGE_ZLOOK: %s: PlayAnimation issued but GetSingleNodeInstance() is STILL NULL (mesh=%s mode=%d)"),
+				*GetName(), MeshComp->GetSkeletalMeshAsset() ? *MeshComp->GetSkeletalMeshAsset()->GetName() : TEXT("NULL"),
+				static_cast<int32>(MeshComp->GetAnimationMode()));
+		}
 		if (!bZombieFirstPlayDone && Node)
 		{
 			// Desync the horde: random start phase so identical variants don't march in lockstep.
@@ -291,6 +332,24 @@ void AEmergeEnemy::UpdateZombieAnim()
 	{
 		Node->SetPlayRate(AuthoredSpeed > UE_KINDA_SMALL_NUMBER
 			? FMath::Clamp(Speed2D / AuthoredSpeed, 0.6f, 1.6f) : 1.0f);
+	}
+
+	// EMERGE_ZLOOK heartbeat (2s cadence): the ground truth of what the single node is doing —
+	// existence, playing state, position ADVANCE since last beat (a playing-but-frozen node means
+	// the pose isn't being ticked, e.g. a visibility-based anim tick option starving it).
+	if (const UWorld* World = GetWorld(); World && World->GetTimeSeconds() >= ZombieNextDebugTime)
+	{
+		ZombieNextDebugTime = World->GetTimeSeconds() + 2.0;
+		const float Pos = Node ? Node->GetCurrentTime() : -1.0f;
+		UE_LOG(LogTemp, Warning,
+			TEXT("EMERGE_ZLOOK: %s: heartbeat clip=%s node=%s playing=%s pos=%.2f (last %.2f) rate=%.2f spd=%.0f mesh=%s rendered=%d tickOpt=%d visible=%d"),
+			*GetName(), ZombieCurrentClip ? *ZombieCurrentClip->GetName() : TEXT("none"),
+			Node ? TEXT("yes") : TEXT("NULL"), Node && Node->IsPlaying() ? TEXT("yes") : TEXT("no"),
+			Pos, ZombieLastDebugPosition, Node ? Node->GetPlayRate() : 0.0f, Speed2D,
+			MeshComp->GetSkeletalMeshAsset() ? *MeshComp->GetSkeletalMeshAsset()->GetName() : TEXT("NULL"),
+			MeshComp->bRecentlyRendered ? 1 : 0, static_cast<int32>(MeshComp->VisibilityBasedAnimTickOption),
+			MeshComp->IsVisible() ? 1 : 0);
+		ZombieLastDebugPosition = Pos;
 	}
 }
 

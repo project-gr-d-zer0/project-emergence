@@ -640,7 +640,10 @@ UAlsMantlingSettings* AEmergeCharacter::SelectMantlingSettings_Implementation(EA
 
 void AEmergeCharacter::SetSprinting(bool bSprint)
 {
-	SetDesiredGait((bSprint && !bSprintExhausted) ? AlsGaitTags::Sprinting : AlsGaitTags::Running);
+	// While the patrol walk-gait override is engaged, "not sprinting" means WALKING, not Running —
+	// otherwise any incidental SetSprinting(false) (flee teardown, etc.) silently breaks the pacing.
+	const FGameplayTag NonSprintGait = bPatrolGaitOverridden ? AlsGaitTags::Walking : AlsGaitTags::Running;
+	SetDesiredGait((bSprint && !bSprintExhausted) ? AlsGaitTags::Sprinting : NonSprintGait);
 }
 
 bool AEmergeCharacter::FleeFrom(FVector ThreatPos)
@@ -716,6 +719,12 @@ void AEmergeCharacter::StartEvading(AActor* Threat)
 
 void AEmergeCharacter::StopEvading()
 {
+	// Restore the pre-patrol gait even on a direct StopEvading (StopPatrolEvade routes here too).
+	if (bPatrolGaitOverridden)
+	{
+		bPatrolGaitOverridden = false;
+		SetDesiredGait(PrePatrolDesiredGait.IsValid() ? PrePatrolDesiredGait : AlsGaitTags::Running);
+	}
 	if (!bEvading) { return; }
 	bEvading = false;
 	EvadeThreat = nullptr;
@@ -731,7 +740,15 @@ void AEmergeCharacter::StartPatrolEvade(const TArray<FVector>& Checkpoints, AAct
 	PatrolIdx = 0;
 	bPatrolling = true;
 	bPatrolLegActive = false;   // TickEvade's comfort branch issues the first leg
+	const FGameplayTag GaitBefore = GetDesiredGait();   // capture BEFORE StartEvading's SetSprinting(false) forces Running
 	StartEvading(Threat);
+	if (bPatrolWalkGait)
+	{
+		// Walking for the whole patrol-evade: walk 175 vs zombie shamble 150 = tense slow pursuit.
+		if (!bPatrolGaitOverridden) { PrePatrolDesiredGait = GaitBefore; }
+		bPatrolGaitOverridden = true;
+		SetDesiredGait(AlsGaitTags::Walking);
+	}
 }
 
 void AEmergeCharacter::StopPatrolEvade()
@@ -768,6 +785,18 @@ void AEmergeCharacter::TickEvade(const float DeltaSeconds)
 	// moment the threat closes back in.
 	if (EvadeThreatDist > EvadeComfortRadius)
 	{
+		// Tether (patrol layer): the zombie has fallen too far behind — STOP and wait for it, even
+		// mid-checkpoint-leg (extends the comfort-stop idea), so he never laps away from the chase.
+		// Movement resumes naturally below once the threat closes back under the tether.
+		if (bPatrolling && EvadeThreatDist > EvadeTetherRadius)
+		{
+			if (bNavigating) { StopNavigating(); }
+			bPatrolLegActive = false;
+			EvadeGoal = FVector::ZeroVector;
+			EvadeReplanTimer = 0.0f;
+			bEvadeWasInDanger = false;
+			return;
+		}
 		if (bPatrolling && PatrolPoints.IsValidIndex(PatrolIdx))
 		{
 			// Patrol layer: comfortable = lap the checkpoints instead of standing around.
@@ -832,6 +861,23 @@ bool AEmergeCharacter::ReplanEvade(const FVector& ThreatPos)
 	ThreatDir.Z = 0.0f;
 	const FVector2D ThreatDir2D = FVector2D(ThreatDir.X, ThreatDir.Y).GetSafeNormal();
 
+	// Track-tied evasion (patrol layer): constrain the accepted candidates to ±EvadeTrackConeDeg
+	// around the direction to the CURRENT checkpoint, so fleeing keeps progressing along the
+	// circuit and drags the zombie across the obstacle stations. The unrestricted best is still
+	// tracked as a fallback (fully blocked cone) and the cornered tripwire below stays exempt.
+	bool bTrackCone = false;
+	FVector2D TrackDir2D = FVector2D::ZeroVector;
+	float TrackConeMinDot = -1.0f;
+	if (bPatrolling && PatrolPoints.IsValidIndex(PatrolIdx))
+	{
+		TrackDir2D = FVector2D(PatrolPoints[PatrolIdx].X - Self.X, PatrolPoints[PatrolIdx].Y - Self.Y).GetSafeNormal();
+		if (!TrackDir2D.IsNearlyZero())
+		{
+			bTrackCone = true;
+			TrackConeMinDot = FMath::Cos(FMath::DegreesToRadians(FMath::Clamp(EvadeTrackConeDeg, 5.0f, 180.0f)));
+		}
+	}
+
 	// Candidate rings around SELF: evenly spaced, plus a fresh per-replan jitter and the drifting
 	// bias angle. The away-from-threat term below supplies the directionality; sampling the full
 	// circle keeps tangential and even threat-side routes on the table (they can be the only way
@@ -846,6 +892,9 @@ bool AEmergeCharacter::ReplanEvade(const FVector& ThreatPos)
 	float BestPerp = FLT_MAX;   // |dot(candidate dir, threat dir)| — smaller = more perpendicular
 	FVector BestPerpGoal = FVector::ZeroVector;
 	bool bPerpFound = false;
+	float BestConeScore = -FLT_MAX;   // best candidate INSIDE the track cone (patrol layer)
+	FVector BestConeGoal = FVector::ZeroVector;
+	bool bConeFound = false;
 
 	for (const float Ring : EvadeRingRadii)
 	{
@@ -888,9 +937,25 @@ bool AEmergeCharacter::ReplanEvade(const FVector& ThreatPos)
 			}
 
 			if (Score > BestScore) { BestScore = Score; BestGoal = Projected.Location; bFound = true; }
+			if (bTrackCone && FVector2D::DotProduct(CandDir, TrackDir2D) >= TrackConeMinDot
+				&& Score > BestConeScore)
+			{
+				BestConeScore = Score;
+				BestConeGoal = Projected.Location;
+				bConeFound = true;
+			}
 			const float Perp = FMath::Abs(FVector2D::DotProduct(CandDir, ThreatDir2D));
 			if (Perp < BestPerp) { BestPerp = Perp; BestPerpGoal = Projected.Location; bPerpFound = true; }
 		}
+	}
+
+	// Track cone wins when it produced anything; otherwise the unrestricted best stands in (a
+	// stalled NPC pinned to the track line is worse than briefly leaving the circuit).
+	if (bTrackCone && bConeFound)
+	{
+		BestScore = BestConeScore;
+		BestGoal = BestConeGoal;
+		bFound = true;
 	}
 
 	// Cornered tripwire: threat on top of us and most candidates dead -> tangential escape. Take

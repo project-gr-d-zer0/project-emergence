@@ -100,6 +100,8 @@ private:
 	float ZombieChaseAuthoredSpeed = 350.0f;  // uu/s from the Root_Motion sibling (fallback 350)
 	bool bZombieLookActive = false;           // mesh swap + single-node mode actually engaged
 	bool bZombieFirstPlayDone = false;        // first-play random-phase desync issued
+	double ZombieNextDebugTime = 0.0;         // EMERGE_ZLOOK heartbeat cadence (world seconds)
+	float ZombieLastDebugPosition = -1.0f;    // last heartbeat's single-node position (advance check)
 
 	// Fall-traversal runtime state (see StartFallTraversal). Hard clip refs for GC safety, same as
 	// the locomotion clips above.

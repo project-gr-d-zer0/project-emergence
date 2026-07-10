@@ -101,6 +101,20 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") float EvadeHysteresisPct = 0.15f;    // keep current goal unless the new best beats it by this
 	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") float PatrolArriveRadius = 200.0f;   // within: advance to the next checkpoint
 
+	// Patrol-evade pacing: use the WALKING gait for the whole patrol-evade (walk 175 vs zombie
+	// shamble 150 = tense slow pursuit instead of trivially outrunning it). The desired gait held
+	// before StartPatrolEvade is restored on StopPatrolEvade/StopEvading.
+	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") bool bPatrolWalkGait = true;
+	// Track-tied evasion: while patrolling, ReplanEvade candidates are constrained to a cone of
+	// this half-angle (deg) around the direction self->CURRENT checkpoint — evasion becomes "keep
+	// moving along the circuit away from the zombie", dragging it across the obstacle stations.
+	// The cornered tripwire stays unrestricted (safety beats track adherence), and a fully blocked
+	// cone falls back to the unrestricted best candidate rather than stalling.
+	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") float EvadeTrackConeDeg = 70.0f;
+	// Tether: while patrolling, if the threat falls further behind than this the NPC STOPS and
+	// waits (even mid-checkpoint-leg, same idea as the comfort stop) so he never laps away from it.
+	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") float EvadeTetherRadius = 1400.0f;
+
 	// Structured spatial snapshot for autonomous testing: player movement, game camera POV,
 	// LIDAR rays (walls/floor/ceiling distances + hit names), and nearby actors. Read via Remote Control.
 	UFUNCTION(BlueprintCallable, Category = "Emerge|Sensor")
@@ -158,4 +172,6 @@ private:
 	int32 PatrolIdx = 0;            // telemetry: current checkpoint
 	bool bPatrolling = false;
 	bool bPatrolLegActive = false;  // the current NavigateTo goal is a checkpoint (not a flee goal)
+	FGameplayTag PrePatrolDesiredGait;      // desired gait before the patrol walk-gait override
+	bool bPatrolGaitOverridden = false;     // walk-gait override engaged (restore on stop)
 };
