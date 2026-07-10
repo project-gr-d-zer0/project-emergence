@@ -15,7 +15,6 @@
 #include "Components/CapsuleComponent.h"
 #include "NavigationSystem.h"
 #include "NavigationPath.h"
-#include "NavigationInvokerComponent.h"
 #include "Nav/EmergeNavRecovery.h"
 #include "Nav/EmergeFlee.h"
 #include "Sensor/EmergeWorldSense.h"
@@ -72,10 +71,9 @@ AEmergeCharacter::AEmergeCharacter()
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
 	FollowCamera->bUsePawnControlRotation = false;
 
-	// Nav invoker: engine builds navmesh tiles around the character at runtime (Downtown West
-	// ships without a baked navmesh). Radii in cm: generate a ~40m bubble, keep out to ~60m.
-	NavInvoker = CreateDefaultSubobject<UNavigationInvokerComponent>(TEXT("NavInvoker"));
-	NavInvoker->SetGenerationRadii(4000.0f, 6000.0f);
+	// Navmesh: whole-map dynamic generation (bGenerateNavigationOnlyAroundNavigationInvokers=False
+	// in DefaultEngine.ini + the GameMode Build() kick) is the working model — no invoker component;
+	// one here would just claim invoker-driven generation the ini flag explicitly disables.
 
 	// ALS gameplay + movement settings (required or the animation refresh early-returns).
 	static ConstructorHelpers::FObjectFinder<UAlsCharacterSettings> AlsSettings(
@@ -119,6 +117,16 @@ AEmergeCharacter::AEmergeCharacter()
 				SettingsProp->SetObjectPropertyValue_InContainer(Camera, CamSettings.Object);
 			}
 		}
+
+		// Keep the component (its BeginPlay ensures need the assets above) but never let it run:
+		// it is a skeletal mesh driving a camera anim BP with AlwaysTickPoseAndRefreshBones — a
+		// whole second rig evaluating every frame for a view we never use (CalcCamera always takes
+		// FollowCamera). It auto-activates on register (USkinnedMeshComponent), which is what turns
+		// its tick on, so block that at the source. Inactive is safe: both our CalcCamera override
+		// and AAlsCharacterExample's (which gates on Camera->IsActive()) route around it.
+		Camera->SetAutoActivate(false);
+		Camera->Deactivate();
+		Camera->SetComponentTickEnabled(false);
 	}
 
 	// Enhanced Input: assign the ALS mapping context + action assets (inherited protected members).
@@ -222,9 +230,13 @@ void AEmergeCharacter::Tick(float DeltaSeconds)
 				}
 			}
 			// REACTIVE fallback: briefly stuck against something the probes missed -> try a mantle
-			// before the repath ladder (ALS validates the surface itself).
-			if (NavStuckTime > 0.5f && NavStuckTime <= 3.0f && GetLocomotionAction() != AlsLocomotionActionTags::Mantling)
+			// before the repath ladder (ALS validates the surface itself). Cooldown between attempts:
+			// while pinned against an unmantleable surface this branch is true EVERY tick, and each
+			// StartMantling attempt runs the full ALS mantle trace suite for nothing.
+			if (NavStuckTime > 0.5f && NavStuckTime <= 3.0f && GetLocomotionAction() != AlsLocomotionActionTags::Mantling
+				&& GetWorld()->GetTimeSeconds() >= NextReactiveVaultTime)
 			{
+				NextReactiveVaultTime = GetWorld()->GetTimeSeconds() + 0.35f;
 				if (IsMantlingAllowedToStart() && StartMantling())
 				{
 					++NavVaultCount;
@@ -360,6 +372,8 @@ FString AEmergeCharacter::SenseEnvironment(float Radius)
 		const int32 cy = FMath::FloorToInt(Y / 200.0f);
 		return ((int64)cx << 32) | (int64)((uint32)cy);
 	};
+	// Bound world-memory growth (test-session scale): a long soak would otherwise accrete cells forever.
+	if (OccGrid.Num() > 4096) { OccGrid.Empty(1024); }
 	OccGrid.Add(CellKey(Pos.X, Pos.Y), 1);
 
 	TArray<FString> Rays;
@@ -488,12 +502,16 @@ FString AEmergeCharacter::SenseEnvironment(float Radius)
 		};
 		const FVector HandL = SkelMesh->GetSocketLocation(FName(TEXT("hand_l")));
 		const FVector HandR = SkelMesh->GetSocketLocation(FName(TEXT("hand_r")));
-		const FVector Head = SkelMesh->GetSocketLocation(FName(TEXT("head")));
 		const float HandSpread = FVector::Dist2D(HandL, HandR);
+		// Bone validity: probe the skeleton itself — GetSocketLocation on a missing bone returns the
+		// component location (NOT near-zero), so the old !IsNearlyZero heuristic never caught a
+		// wrong-skeleton swap.
+		const bool bBonesValid = SkelMesh->DoesSocketExist(FName(TEXT("head")))
+			&& SkelMesh->DoesSocketExist(FName(TEXT("pelvis")));
 		BonesJson = FString::Printf(
 			TEXT("{\"head\":%s,\"hand_l\":%s,\"hand_r\":%s,\"foot_l\":%s,\"foot_r\":%s,\"pelvis\":%s,\"handSpread\":%.0f,\"tposeSuspect\":%s,\"valid\":%s}"),
 			*Rel(TEXT("head")), *Rel(TEXT("hand_l")), *Rel(TEXT("hand_r")), *Rel(TEXT("foot_l")), *Rel(TEXT("foot_r")), *Rel(TEXT("pelvis")),
-			HandSpread, (HandSpread > 120.0f) ? TEXT("true") : TEXT("false"), (!Head.IsNearlyZero()) ? TEXT("true") : TEXT("false"));
+			HandSpread, (HandSpread > 120.0f) ? TEXT("true") : TEXT("false"), bBonesValid ? TEXT("true") : TEXT("false"));
 	}
 
 	FString AnimJson;

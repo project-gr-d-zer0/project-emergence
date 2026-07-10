@@ -54,6 +54,18 @@ void AEmergeEnemyController::BeginPlay()
 	SetSpeed(ShambleSpeed);
 }
 
+void AEmergeEnemyController::OnPossess(APawn* InPawn)
+{
+	Super::OnPossess(InPawn);
+	// Single source of truth for speeds = the enemy pawn (its properties drive the actual ALS gait
+	// table); the controller's UPROPERTY defaults only cover non-AEmergeEnemy pawns.
+	if (const AEmergeEnemy* Enemy = Cast<AEmergeEnemy>(InPawn))
+	{
+		ChaseSpeed = Enemy->ZombieRunSpeed;
+		ShambleSpeed = Enemy->ZombieWalkSpeed;
+	}
+}
+
 void AEmergeEnemyController::OnPerception(AActor* Actor, FAIStimulus Stimulus)
 {
 	if (!Target.IsValid() || Actor != Target.Get()) { return; }
@@ -65,7 +77,18 @@ void AEmergeEnemyController::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 	APawn* Self = GetPawn();
-	if (!Self || !Target.IsValid()) { return; }
+	if (!Self) { return; }
+	if (!Target.IsValid())
+	{
+		// Re-acquire rather than going permanently inert (the player pawn can be destroyed and
+		// recreated mid-session — respawn, seamless travel, possession swap).
+		Target = UGameplayStatics::GetPlayerPawn(this, 0);
+		if (!Target.IsValid())
+		{
+			UE_LOG(LogTemp, VeryVerbose, TEXT("%s: no player pawn to target"), *GetName());
+			return;
+		}
+	}
 
 	const float Dist = FVector::Dist(Self->GetActorLocation(), Target->GetActorLocation());
 
@@ -95,8 +118,16 @@ void AEmergeEnemyController::Tick(float DeltaSeconds)
 		AIState = EEmergeAIState::Chasing;
 		SearchTime = 0.0f;
 		// Cornering penalty: slow while the heading sweeps hard (the player's juke/parkour escape margin).
+		// The scale CANNOT ride through SetSpeed: that only maps the request to a GAIT, and ALS
+		// recomputes MaxWalkSpeed from the gait table every physics tick — 560*0.65 still picked
+		// Running at full 560 (measured no-op). Push the scale into the enemy's duplicated movement
+		// settings instead; SetSpeed keeps only the gait decision.
 		UpdateCorneringScale(Self, DeltaSeconds);
-		SetSpeed(ChaseSpeed * CornerScale);
+		if (AEmergeEnemy* Enemy = Cast<AEmergeEnemy>(Self))
+		{
+			Enemy->SetChaseSpeedScale(CornerScale);
+		}
+		SetSpeed(ChaseSpeed);
 		EnsureMoveToActor(Target.Get());
 	}
 	else if (AIState == EEmergeAIState::Chasing || AIState == EEmergeAIState::Searching)
@@ -225,10 +256,16 @@ void AEmergeEnemyController::UpdateCorneringScale(const APawn* Self, float Delta
 void AEmergeEnemyController::SetSpeed(float Speed)
 {
 	// ALS owns MaxWalkSpeed (drives it from the character's gait settings): map the requested speed
-	// to a gait. The zombie's own movement settings put Walking=shamble 150 and Running=chase 560.
+	// to a gait. The threshold derives from the pawn's own speed tuning (single source of truth =
+	// the enemy pawn's ZombieWalkSpeed/ZombieRunSpeed); 300 is the non-zombie fallback.
 	if (AAlsCharacter* AlsChar = Cast<AAlsCharacter>(GetPawn()))
 	{
-		AlsChar->SetDesiredGait(Speed > 300.0f ? AlsGaitTags::Running : AlsGaitTags::Walking);
+		float GaitThreshold = 300.0f;
+		if (const AEmergeEnemy* Enemy = Cast<AEmergeEnemy>(AlsChar))
+		{
+			GaitThreshold = (Enemy->ZombieWalkSpeed + Enemy->ZombieRunSpeed) * 0.5f;
+		}
+		AlsChar->SetDesiredGait(Speed > GaitThreshold ? AlsGaitTags::Running : AlsGaitTags::Walking);
 		return;
 	}
 	if (ACharacter* C = Cast<ACharacter>(GetPawn()))

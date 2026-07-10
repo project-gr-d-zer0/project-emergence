@@ -20,6 +20,14 @@ static FString PoseJsonFor(const APawn* P)
 	const ACharacter* Char = Cast<ACharacter>(P);
 	USkeletalMeshComponent* M = Char ? Char->GetMesh() : nullptr;
 	if (!M || !M->GetSkeletalMeshAsset()) { return TEXT("null"); }
+	// Wrong-skeleton guard: GetSocketLocation on a missing bone returns the component location (NOT
+	// near-zero), so value heuristics can't catch a bad mesh swap — probe the skeleton directly.
+	if (!M->DoesSocketExist(TEXT("head")) || !M->DoesSocketExist(TEXT("pelvis"))
+		|| !M->DoesSocketExist(TEXT("hand_l")) || !M->DoesSocketExist(TEXT("hand_r"))
+		|| !M->DoesSocketExist(TEXT("foot_l")) || !M->DoesSocketExist(TEXT("foot_r")))
+	{
+		return TEXT("{\"error\":\"missing bones (wrong skeleton?)\"}");
+	}
 	const float UpZ = M->GetUpVector().Z;
 	const FVector Head = M->GetSocketLocation(TEXT("head"));
 	const FVector Pelvis = M->GetSocketLocation(TEXT("pelvis"));

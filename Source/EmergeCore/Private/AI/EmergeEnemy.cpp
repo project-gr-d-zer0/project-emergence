@@ -1,7 +1,8 @@
 #include "AI/EmergeEnemy.h"
 #include "AI/EmergeEnemyController.h"
-#include "GameFramework/CharacterMovementComponent.h"
+#include "AlsCharacterMovementComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Curves/CurveVector.h"
 #include "Engine/SkeletalMesh.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
@@ -52,43 +53,87 @@ AEmergeEnemy::AEmergeEnemy()
 
 void AEmergeEnemy::PostInitializeComponents()
 {
-	// Zombie speeds: duplicate MS_Als_Normal (keeps the accel/rotation curves) and override gait
-	// speeds — Walking = shamble 150, Running = chase 560 (research-tuned vs player run 375/sprint 640).
+	// Zombie tuning: duplicate MS_Als_Normal and override BOTH the gait speeds (Walking = shamble,
+	// Running = chase, from the Zombie*Speed properties) and the accel/decel/friction curve — ALS
+	// recomputes MaxWalkSpeed/MaxAcceleration/braking every physics tick from this gait table +
+	// curves, so direct CMC field writes are dead tuning; everything goes through this object.
+	// DuplicateObject copies the table but SHARES the referenced UCurveVector asset, so the curve
+	// gets its own duplicate too: X channel = acceleration, scaled by 0.35 for weighty zombie
+	// starts (Y = deceleration and Z = ground friction stay stock — stops/traction unchanged).
 	// Must happen BEFORE Super, which hands MovementSettings to the movement component.
 	if (BaseMovementSettings)
 	{
 		UAlsMovementSettings* Zombie = DuplicateObject(BaseMovementSettings.Get(), this, TEXT("ZombieMovementSettings"));
+		TMap<UCurveVector*, UCurveVector*> DuplicatedCurves;   // stances usually share one curve asset: duplicate once
 		for (TPair<FGameplayTag, FAlsMovementStanceSettings>& RotationPair : Zombie->RotationModes)
 		{
 			for (TPair<FGameplayTag, FAlsMovementGaitSettings>& StancePair : RotationPair.Value.Stances)
 			{
-				StancePair.Value.WalkForwardSpeed = 150.0f;
-				StancePair.Value.WalkBackwardSpeed = 150.0f;
-				StancePair.Value.RunForwardSpeed = 560.0f;
-				StancePair.Value.RunBackwardSpeed = 560.0f;
-				StancePair.Value.SprintSpeed = 650.0f;
+				StancePair.Value.WalkForwardSpeed = ZombieWalkSpeed;
+				StancePair.Value.WalkBackwardSpeed = ZombieWalkSpeed;
+				StancePair.Value.RunForwardSpeed = ZombieRunSpeed;
+				StancePair.Value.RunBackwardSpeed = ZombieRunSpeed;
+				StancePair.Value.SprintSpeed = ZombieSprintSpeed;
+				if (UCurveVector* SourceCurve = StancePair.Value.AccelerationAndDecelerationAndGroundFrictionCurve)
+				{
+					UCurveVector*& Scaled = DuplicatedCurves.FindOrAdd(SourceCurve);
+					if (!Scaled)
+					{
+						Scaled = DuplicateObject(SourceCurve, this);
+						for (FRichCurveKey& Key : Scaled->FloatCurves[0].Keys)   // [0] = X = acceleration
+						{
+							Key.Value *= 0.35f;
+						}
+					}
+					StancePair.Value.AccelerationAndDecelerationAndGroundFrictionCurve = Scaled;
+				}
 			}
 		}
+		ZombieMovementSettings = Zombie;
 		MovementSettings = Zombie;
 	}
 	Super::PostInitializeComponents();
+}
+
+void AEmergeEnemy::SetChaseSpeedScale(float Scale)
+{
+	Scale = FMath::Clamp(Scale, 0.5f, 1.0f);
+	// Re-apply only on a real change: rewriting the gait table + RefreshGaitSettings every tick
+	// for sub-percent wiggle is pointless churn.
+	if (!ZombieMovementSettings || FMath::Abs(Scale - LastChaseSpeedScale) <= 0.02f) { return; }
+	LastChaseSpeedScale = Scale;
+	const float ScaledRunSpeed = ZombieRunSpeed * Scale;
+	for (TPair<FGameplayTag, FAlsMovementStanceSettings>& RotationPair : ZombieMovementSettings->RotationModes)
+	{
+		for (TPair<FGameplayTag, FAlsMovementGaitSettings>& StancePair : RotationPair.Value.Stances)
+		{
+			StancePair.Value.RunForwardSpeed = ScaledRunSpeed;
+			StancePair.Value.RunBackwardSpeed = ScaledRunSpeed;
+		}
+	}
+	// ALS caches the gait settings in the movement component and recomputes MaxWalkSpeed from that
+	// cache every physics tick — the edit above is invisible until SetMovementSettings re-hands the
+	// object over and forces RefreshGaitSettings.
+	if (UAlsCharacterMovementComponent* Move = Cast<UAlsCharacterMovementComponent>(GetCharacterMovement()))
+	{
+		Move->SetMovementSettings(ZombieMovementSettings);
+	}
 }
 
 void AEmergeEnemy::BeginPlay()
 {
 	Super::BeginPlay();
 	// Face travel direction (an AI has no meaningful view direction) and start at shamble.
+	// NOTE: the desired rotation mode applies on the next locomotion refresh — there is a single
+	// frame of ViewDirection facing first (cosmetic one-frame snap; documented so nobody chases it).
 	SetDesiredRotationMode(AlsRotationModeTags::VelocityDirection);
 	SetDesiredGait(AlsGaitTags::Walking);
-	// De-robotize (research quick wins): injured overlay = lurchy full-body posture for free;
-	// acceleration-driven path following with low accel = weighty starts/stops from physics.
+	// De-robotize (research quick wins): injured overlay = lurchy full-body posture for free.
+	// Weighty starts come from the 0.35x-scaled acceleration curve baked into the duplicated
+	// movement settings in PostInitializeComponents — NOT from CMC field writes here: ALS
+	// recomputes MaxAcceleration/braking from its gait curves every physics tick (and the ALS
+	// ctor already enables bUseAccelerationForPaths), so the old direct writes were dead code.
 	SetOverlayMode(AlsOverlayModeTags::Injured);
-	if (UCharacterMovementComponent* Move = GetCharacterMovement())
-	{
-		Move->GetNavMovementProperties()->bUseAccelerationForPaths = true;
-		Move->MaxAcceleration = 550.0f;
-		Move->BrakingFrictionFactor = 0.6f;
-	}
 }
 
 UAlsMantlingSettings* AEmergeEnemy::SelectMantlingSettings_Implementation(EAlsMantlingType MantlingType)

@@ -20,6 +20,7 @@ public:
 	AEmergeEnemyController(const FObjectInitializer& ObjectInitializer);
 
 	virtual void BeginPlay() override;
+	virtual void OnPossess(APawn* InPawn) override;
 	virtual void Tick(float DeltaSeconds) override;
 
 	// --- Telemetry (read over Remote Control) ---
@@ -44,6 +45,8 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float DecayRate = 0.25f;
 	// Research-tuned (2026-07-09): between player run (375) and sprint (640) — sprint is the escape
 	// verb, but only while stamina lasts; the cornering penalty is the juke/parkour escape margin.
+	// Defaults are fallbacks only: OnPossess re-initializes both from the possessed AEmergeEnemy's
+	// ZombieRunSpeed/ZombieWalkSpeed (single source of truth = the enemy pawn).
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float ChaseSpeed = 560.0f;
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float ShambleSpeed = 150.0f;
 	// Cornering penalty inputs are HEADING SWEEP RATES (deg/sec of velocity-direction change):
