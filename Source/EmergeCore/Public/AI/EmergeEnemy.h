@@ -5,7 +5,6 @@
 
 class UAlsMovementSettings;
 class UAlsMantlingSettings;
-class UAnimSequence;
 class USkeletalMesh;
 enum class EAlsMantlingType : uint8;
 
@@ -25,23 +24,12 @@ public:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
 	virtual UAlsMantlingSettings* SelectMantlingSettings_Implementation(EAlsMantlingType MantlingType) override;
-	virtual bool IsMantlingAllowedToStart_Implementation() const override;
 
 	// Anim-state oracle for RC (debugging pose/anim issues).
 	UFUNCTION(BlueprintCallable, Category = "Emerge|Anim")
 	FString GetAnimDebug() const;
 
-	// Scripted zombie wall traversal: a slow two-segment topple over a low obstacle — rise up the
-	// wall face to above the obstacle top, then collapse forward/down to the far-side floor —
-	// driven from Tick as a world-space capsule lerp. Zombie-look mode has no ALS anim instance
-	// (mantle montages can't play, IsMantlingAllowedToStart refuses), so the controller calls this
-	// instead of StartMantling; design canon: shamblers messily FALL over walls, they never jump.
-	// Returns false unless zombie-look is active, grounded, and not already traversing.
-	UFUNCTION(BlueprintCallable, Category = "Emerge|ZombieLook")
-	bool StartFallTraversal(const FVector& ObstacleTopPoint, const FVector& LandingPoint);
-
 	bool IsZombieLookActive() const { return bZombieLookActive; }
-	bool IsFallTraversing() const { return bFallTraversing; }
 
 	// Single source of truth for zombie gait speeds (the controller derives its thresholds from
 	// these in OnPossess). Research-tuned: shamble 150, chase 560 (vs player run 375/sprint 640).
@@ -49,29 +37,14 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Emerge") float ZombieRunSpeed = 560.0f;
 	UPROPERTY(EditAnywhere, Category = "Emerge") float ZombieSprintSpeed = 650.0f;
 
-	// Zombie visual + locomotion look (v1 single-node route): BeginPlay swaps the ALS body for the
-	// MoCap Online zombie mesh and drives animation as speed-switched single-node playback (idle /
-	// walk / chase variant per instance, play rate = actual speed / authored root-motion speed).
-	// This deliberately bypasses AB_Als/ALS anim polish for the basic-mechanics test; mantling
-	// anims are unavailable in this mode (flat-ground scenario), so mantling is disabled while
-	// active. false = exactly the current ALS body + behavior (movement stays CMC-driven either
-	// way — the clips are in-place, correct for CMC-driven AI per research).
+	// Zombie visual (v2 compatible-skeletons route): BeginPlay swaps the ALS body for the MoCap
+	// Online zombie SK_Mannequin mesh and KEEPS the full ALS pipeline — AB_Als keeps running on
+	// the swapped mesh because the zombie's UE4_Mannequin_Skeleton lists SK_Als as a compatible
+	// skeleton (set both ways by emerge_py/compat_skeletons.py). All ALS state/gait/mantling
+	// behaves exactly as on the ALS body; the zombie plays HUMAN ALS locomotion anims for now
+	// (interim — the zombie clip layer comes next). false = the stock ALS body.
 	UPROPERTY(EditAnywhere, Category = "Emerge|ZombieLook") bool bUseZombieLook = true;
 	UPROPERTY(EditAnywhere, Category = "Emerge|ZombieLook") TSoftObjectPtr<USkeletalMesh> ZombieMesh;
-	UPROPERTY(EditAnywhere, Category = "Emerge|ZombieLook") TArray<TSoftObjectPtr<UAnimSequence>> IdleClips;
-	UPROPERTY(EditAnywhere, Category = "Emerge|ZombieLook") TArray<TSoftObjectPtr<UAnimSequence>> WalkClips;
-	UPROPERTY(EditAnywhere, Category = "Emerge|ZombieLook") TArray<TSoftObjectPtr<UAnimSequence>> ChaseClips;
-
-	// Fall-traversal composite (StartFallTraversal), all shambler-native — no jump clips anywhere:
-	// rise = reach loop (clawing/dragging itself up the face), topple = stand-to-crawl collapse
-	// over the lip, recover = crawl-to-stand scramble after landing. One of each rolled + rate-
-	// randomized per traversal.
-	UPROPERTY(EditAnywhere, Category = "Emerge|ZombieLook") TArray<TSoftObjectPtr<UAnimSequence>> TraversalReachClips;
-	UPROPERTY(EditAnywhere, Category = "Emerge|ZombieLook") TArray<TSoftObjectPtr<UAnimSequence>> TraversalToppleClips;
-	UPROPERTY(EditAnywhere, Category = "Emerge|ZombieLook") TArray<TSoftObjectPtr<UAnimSequence>> TraversalRecoverClips;
-	// Segment durations roughly track the clips at their randomized rates (slow topple, not a vault).
-	UPROPERTY(EditAnywhere, Category = "Emerge|ZombieLook") float FallRiseSeconds = 1.0f;
-	UPROPERTY(EditAnywhere, Category = "Emerge|ZombieLook") float FallDropSeconds = 0.9f;
 
 	// Cornering slowdown: rewrites the run speeds in the DUPLICATED movement settings and re-hands
 	// them to the ALS movement component. On ALS characters MaxWalkSpeed/MaxAcceleration/braking are
@@ -87,41 +60,18 @@ protected:
 	UPROPERTY() TObjectPtr<UAlsMantlingSettings> MantlingSettingsHigh;
 	UPROPERTY() TObjectPtr<UAlsMantlingSettings> MantlingSettingsLow;
 
+	// Zombie mantle VARIETY bank: 3 speed variants per height (rate-scaled duplicates of the ALS
+	// mantle montages, built by emerge_py/make_zombie_mantles.py into /Game/ZombieAnim). When the
+	// zombie look is active, SelectMantlingSettings rolls a random element PER MANTLE — that roll
+	// is the variance. The single settings above stay as the non-zombie fallback.
+	UPROPERTY() TArray<TObjectPtr<UAlsMantlingSettings>> ZombieMantleHigh;
+	UPROPERTY() TArray<TObjectPtr<UAlsMantlingSettings>> ZombieMantleLow;
+
 private:
 	float LastChaseSpeedScale = -1.0f;   // last applied scale; re-apply only on >0.02 change (no per-tick churn)
 
-	// Zombie-look runtime state. Hard refs to the rolled clips (loaded in BeginPlay) so GC can't
-	// drop them out from under the single-node player.
-	UPROPERTY(Transient) TObjectPtr<UAnimSequence> ZombieIdleClip;
-	UPROPERTY(Transient) TObjectPtr<UAnimSequence> ZombieWalkClip;
-	UPROPERTY(Transient) TObjectPtr<UAnimSequence> ZombieChaseClip;
-	UPROPERTY(Transient) TObjectPtr<UAnimSequence> ZombieCurrentClip;
-	float ZombieWalkAuthoredSpeed = 80.0f;    // uu/s from the Root_Motion sibling (fallback 80)
-	float ZombieChaseAuthoredSpeed = 350.0f;  // uu/s from the Root_Motion sibling (fallback 350)
-	bool bZombieLookActive = false;           // mesh swap + single-node mode actually engaged
-	bool bZombieFirstPlayDone = false;        // first-play random-phase desync issued
-	double ZombieNextDebugTime = 0.0;         // EMERGE_ZLOOK heartbeat cadence (world seconds)
-	float ZombieLastDebugPosition = -1.0f;    // last heartbeat's single-node position (advance check)
-
-	// Fall-traversal runtime state (see StartFallTraversal). Hard clip refs for GC safety, same as
-	// the locomotion clips above.
-	UPROPERTY(Transient) TObjectPtr<UAnimSequence> ZombieReachClip;
-	UPROPERTY(Transient) TObjectPtr<UAnimSequence> ZombieToppleClip;
-	UPROPERTY(Transient) TObjectPtr<UAnimSequence> ZombieRecoverClip;
-	bool bFallTraversing = false;
-	int32 FallPhase = 0;              // 0 rise-to-apex, 1 topple-to-floor, 2 scramble-up pause
-	float FallPhaseTime = 0.0f;       // seconds into the current phase
-	float FallElapsed = 0.0f;         // watchdog clock over the whole traversal
-	float FallRecoverPause = 0.6f;    // rolled per traversal (shamblers struggle up at their own pace)
-	FVector FallStart = FVector::ZeroVector;
-	FVector FallApex = FVector::ZeroVector;
-	FVector FallLand = FVector::ZeroVector;
-	int32 FallTraversalCount = 0;     // telemetry (GetAnimDebug "fallTraversals")
+	bool bZombieLookActive = false;      // zombie mesh swap actually engaged (ALS pipeline intact)
+	double ZombieNextDebugTime = 0.0;    // EMERGE_ZLOOK heartbeat cadence (world seconds)
 
 	void SetupZombieLook();
-	void UpdateZombieAnim();
-	void TickFallTraversal(float DeltaSeconds);
-	void FinishFallTraversal();
-	void PlayTraversalClip(UAnimSequence* Clip, bool bLooping, float Rate);
-	static float AuthoredSpeedFromRootMotion(const UAnimSequence* IpcClip, float FallbackSpeed);
 };

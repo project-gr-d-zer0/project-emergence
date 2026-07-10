@@ -204,38 +204,10 @@ void AEmergeEnemyController::TryTraversalHop(APawn* Self, float DeltaSeconds)
 	const float LowDist = bLow ? LowHit.Distance : -1.0f;
 	if (UEmergeHop::ShouldHop(LowDist, HopTriggerDist, !bHigh, true))
 	{
-		// Zombie-look mode has no ALS anim instance (mantle montages can't play — the pawn refuses
-		// via IsMantlingAllowedToStart): scripted fall-over-the-wall traversal instead. A slow
-		// topple, never a jump (design canon).
-		AEmergeEnemy* Zombie = Cast<AEmergeEnemy>(AlsChar);
-		if (Zombie && Zombie->IsZombieLookActive())
-		{
-			if (Zombie->IsFallTraversing()) { return; }
-			// Obstacle top: down-trace from the height the high probe proved clear, just past the
-			// blocked knee-hit face (ShouldHop guarantees LowHit is a real within-range hit).
-			const FVector TopStart = FVector(LowHit.ImpactPoint.X, LowHit.ImpactPoint.Y,
-				Feet.Z + HopClearHeightUu + 15.0f) + Ahead * 10.0f;
-			FHitResult TopHit;
-			if (!GetWorld()->LineTraceSingleByChannel(TopHit, TopStart,
-				TopStart - FVector(0.0f, 0.0f, HopClearHeightUu + 15.0f), ECC_Visibility, QP)) { return; }
-			// Curb gate: sub-threshold obstacles (street curbs / kerb-height furniture) are step-ups
-			// (MaxStepHeight handles them during normal walking), never traversals — early out BEFORE
-			// any cooldown/telemetry is touched so a real wall right after still triggers instantly.
-			if (TopHit.ImpactPoint.Z - Feet.Z < MinTraversalHeightUu) { return; }
-			// Far-side floor: forward of the lip, straight down. No floor within 250uu below the
-			// top = ledge/pit, abort — zombies topple over walls, they don't leap into holes.
-			const FVector LandStart = TopHit.ImpactPoint + Ahead * 120.0f + FVector(0.0f, 0.0f, 20.0f);
-			FHitResult FloorHit;
-			if (!GetWorld()->LineTraceSingleByChannel(FloorHit, LandStart,
-				LandStart - FVector(0.0f, 0.0f, 270.0f), ECC_Visibility, QP)) { return; }
-			if (Zombie->StartFallTraversal(TopHit.ImpactPoint, FloorHit.ImpactPoint))
-			{
-				HopCooldown = HopCooldownSeconds;
-				++HopCount;
-			}
-			return;
-		}
-		// The IDENTICAL mantle the player uses — ALS traces/validates the ledge itself.
+		// The IDENTICAL mantle the player uses — ALS traces/validates the ledge itself. Everyone
+		// takes this path now (v2 compatible-skeletons zombies run the full ALS pipeline, so
+		// mantle montages play on the zombie mesh too). No extra height gate here: ALS's own
+		// mantle trace bands already handle everything from ~50uu up.
 		if (AlsChar->IsMantlingAllowedToStart() && AlsChar->StartMantling())
 		{
 			HopCooldown = HopCooldownSeconds;

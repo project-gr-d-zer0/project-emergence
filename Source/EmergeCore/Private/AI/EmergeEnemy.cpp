@@ -6,10 +6,6 @@
 #include "Engine/SkeletalMesh.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
-#include "Animation/AnimSequence.h"
-#include "Animation/AnimSingleNodeInstance.h"
-#include "Components/CapsuleComponent.h"
-#include "GameFramework/CharacterMovementComponent.h"
 #include "Settings/AlsCharacterSettings.h"
 #include "Settings/AlsMovementSettings.h"
 #include "Settings/AlsMantlingSettings.h"
@@ -42,7 +38,7 @@ AEmergeEnemy::AEmergeEnemy()
 		TEXT("/ALS/ALS/Data/Character/Movement/MS_Als_Normal.MS_Als_Normal"));
 	if (BaseMovement.Succeeded()) { BaseMovementSettings = BaseMovement.Object; }
 
-	// Same mantle as the player (montages + auto start time).
+	// Same mantle as the player (montages + auto start time) — kept as the non-zombie fallback.
 	MantlingSettingsHigh = CreateDefaultSubobject<UAlsMantlingSettings>(TEXT("MantlingSettingsHigh"));
 	MantlingSettingsLow = CreateDefaultSubobject<UAlsMantlingSettings>(TEXT("MantlingSettingsLow"));
 	MantlingSettingsHigh->bAutoCalculateStartTime = true;
@@ -54,33 +50,56 @@ AEmergeEnemy::AEmergeEnemy()
 		TEXT("/ALS/ALS/Animations/Actions/Mantle/AM_Als_Mantle_Low.AM_Als_Mantle_Low"));
 	if (MantleLow.Succeeded()) { MantlingSettingsLow->Montage = MantleLow.Object; }
 
-	// Zombie look defaults: MoCap Online Zombie Pro (UE4-Mannequin rig). Soft paths only — loaded
-	// at runtime in SetupZombieLook via LoadSynchronous, NOT ConstructorHelpers (a hard find here
-	// would drag every clip into memory with the CDO even with bUseZombieLook off).
+	// Zombie mantle VARIETY bank: 3 rate-scaled duplicates per height (0.50/0.60/0.72, built into
+	// /Game/ZombieAnim by emerge_py/make_zombie_mantles.py — duplicates inherit the source montage
+	// slots, so ALS mantling slot expectations are unchanged). A variant whose montage asset is
+	// missing is NOT added, so SelectMantlingSettings can trust every array element and cleanly
+	// falls back to the single settings when the bank is empty (script not run yet).
+	static const TCHAR* ZombieMantlePaths[2][3] = {
+		{
+			TEXT("/Game/ZombieAnim/AM_Zombie_Mantle_High_1.AM_Zombie_Mantle_High_1"),
+			TEXT("/Game/ZombieAnim/AM_Zombie_Mantle_High_2.AM_Zombie_Mantle_High_2"),
+			TEXT("/Game/ZombieAnim/AM_Zombie_Mantle_High_3.AM_Zombie_Mantle_High_3")
+		},
+		{
+			TEXT("/Game/ZombieAnim/AM_Zombie_Mantle_Low_1.AM_Zombie_Mantle_Low_1"),
+			TEXT("/Game/ZombieAnim/AM_Zombie_Mantle_Low_2.AM_Zombie_Mantle_Low_2"),
+			TEXT("/Game/ZombieAnim/AM_Zombie_Mantle_Low_3.AM_Zombie_Mantle_Low_3")
+		}
+	};
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> ZombieHigh1(ZombieMantlePaths[0][0]);
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> ZombieHigh2(ZombieMantlePaths[0][1]);
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> ZombieHigh3(ZombieMantlePaths[0][2]);
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> ZombieLow1(ZombieMantlePaths[1][0]);
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> ZombieLow2(ZombieMantlePaths[1][1]);
+	static ConstructorHelpers::FObjectFinder<UAnimMontage> ZombieLow3(ZombieMantlePaths[1][2]);
+	UAnimMontage* const ZombieHighMontages[3] = { ZombieHigh1.Object, ZombieHigh2.Object, ZombieHigh3.Object };
+	UAnimMontage* const ZombieLowMontages[3] = { ZombieLow1.Object, ZombieLow2.Object, ZombieLow3.Object };
+	for (int32 Index = 0; Index < 3; ++Index)
+	{
+		if (ZombieHighMontages[Index])
+		{
+			UAlsMantlingSettings* SettingsObject = CreateDefaultSubobject<UAlsMantlingSettings>(
+				*FString::Printf(TEXT("ZombieMantleHigh%d"), Index + 1));
+			SettingsObject->bAutoCalculateStartTime = true;
+			SettingsObject->Montage = ZombieHighMontages[Index];
+			ZombieMantleHigh.Add(SettingsObject);
+		}
+		if (ZombieLowMontages[Index])
+		{
+			UAlsMantlingSettings* SettingsObject = CreateDefaultSubobject<UAlsMantlingSettings>(
+				*FString::Printf(TEXT("ZombieMantleLow%d"), Index + 1));
+			SettingsObject->bAutoCalculateStartTime = true;
+			SettingsObject->Montage = ZombieLowMontages[Index];
+			ZombieMantleLow.Add(SettingsObject);
+		}
+	}
+
+	// Zombie look default: MoCap Online Zombie Pro mesh (UE4-Mannequin rig). Soft path only —
+	// loaded at runtime in SetupZombieLook via LoadSynchronous, NOT ConstructorHelpers (a hard
+	// find here would drag the asset into memory with the CDO even with bUseZombieLook off).
 	ZombieMesh = TSoftObjectPtr<USkeletalMesh>(FSoftObjectPath(
 		TEXT("/Game/Zombie_01/Character/Mesh/SK_Mannequin.SK_Mannequin")));
-	const auto ZombieClip = [](const TCHAR* Name)
-	{
-		return TSoftObjectPtr<UAnimSequence>(FSoftObjectPath(
-			FString::Printf(TEXT("/Game/Zombie_01/Animation/In_Place/%s.%s"), Name, Name)));
-	};
-	IdleClips = { ZombieClip(TEXT("Zombie_Idle_1_v2_IPC")), ZombieClip(TEXT("Zombie_Idle_2_IPC")),
-	              ZombieClip(TEXT("Zombie_Idle_3_IPC")), ZombieClip(TEXT("Zombie_Idle_4_IPC")) };
-	// Walk variants: the *_Loop_IPC walks (the Stand_Walk_F_* clips are stand-to-walk transition
-	// starts, not loops — verified on disk) plus the two shamble loops for extra horde variety.
-	WalkClips = { ZombieClip(TEXT("Zombie_Walk_F_1_Loop_IPC")), ZombieClip(TEXT("Zombie_Walk_F_2_Loop_IPC")),
-	              ZombieClip(TEXT("Zombie_Walk_F_3_Loop_IPC")), ZombieClip(TEXT("Zombie_Walk_F_4_Loop_IPC")),
-	              ZombieClip(TEXT("Zombie_Walk_F_5_Loop_IPC")), ZombieClip(TEXT("Zombie_Walk_F_6_Loop_IPC")),
-	              ZombieClip(TEXT("Zombie_Shamble_1_IPC")), ZombieClip(TEXT("Zombie_Shamble_2_IPC")) };
-	// Chase loops on disk are 1, 2, 3 and 5 — there is no Zombie_Chase_4_Loop_IPC (verified).
-	ChaseClips = { ZombieClip(TEXT("Zombie_Chase_1_Loop_IPC")), ZombieClip(TEXT("Zombie_Chase_2_Loop_IPC")),
-	               ZombieClip(TEXT("Zombie_Chase_3_Loop_IPC")), ZombieClip(TEXT("Zombie_Chase_5_Loop_IPC")) };
-	// Fall-traversal composite (names verified on disk): reach loops = clawing up the wall face,
-	// stand-to-crawl = collapsing forward over the lip, crawl-to-stand = the scramble back up.
-	// Deliberately NO Jump_* clips — shamblers fall over walls, they never jump (design canon).
-	TraversalReachClips = { ZombieClip(TEXT("Zombie_Reach_1_Loop_IPC")), ZombieClip(TEXT("Zombie_Reach_2_Loop_IPC")) };
-	TraversalToppleClips = { ZombieClip(TEXT("Zombie_Stand_to_Crawl_1_IPC")), ZombieClip(TEXT("Zombie_Stand_to_Crawl_2_IPC")) };
-	TraversalRecoverClips = { ZombieClip(TEXT("Zombie_Crawl_1_to_Stand_IPC")), ZombieClip(TEXT("Zombie_Crawl_2_to_Stand_IPC")) };
 }
 
 void AEmergeEnemy::PostInitializeComponents()
@@ -124,6 +143,21 @@ void AEmergeEnemy::PostInitializeComponents()
 		ZombieMovementSettings = Zombie;
 		MovementSettings = Zombie;
 	}
+
+	// Zombie look (v2 compatible-skeletons): swap the mesh BEFORE Super — AAlsCharacter::
+	// PostInitializeComponents caches AnimationInstance from GetMesh()->GetAnimInstance(), and
+	// SetSkeletalMeshAsset re-creates the anim instance; swapping here means ALS caches the
+	// AB_Als instance that lives on the ZOMBIE mesh (swapping later would strand a stale cache
+	// and dead-tick the whole ALS pipeline — the v1 failure mode).
+	if (bUseZombieLook)
+	{
+		SetupZombieLook();
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("EMERGE_ZLOOK: %s: bUseZombieLook=false - staying on the ALS body"), *GetName());
+	}
+
 	Super::PostInitializeComponents();
 }
 
@@ -166,36 +200,33 @@ void AEmergeEnemy::BeginPlay()
 	// recomputes MaxAcceleration/braking from its gait curves every physics tick (and the ALS
 	// ctor already enables bUseAccelerationForPaths), so the old direct writes were dead code.
 	SetOverlayMode(AlsOverlayModeTags::Injured);
-
-	// Zombie look last: the mesh swap kills the ALS anim instance, so everything above that goes
-	// through ALS state (rotation mode, gait, overlay) must already be set.
-	if (bUseZombieLook)
-	{
-		SetupZombieLook();
-	}
-	else
-	{
-		UE_LOG(LogTemp, Warning, TEXT("EMERGE_ZLOOK: %s: bUseZombieLook=false - staying on the ALS body"), *GetName());
-	}
 }
 
 void AEmergeEnemy::Tick(const float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
-	if (bZombieLookActive)
+
+	// EMERGE_ZLOOK heartbeat (2s cadence): ground truth that the ALS pipeline is alive on the
+	// swapped mesh — mesh asset, anim instance CLASS (must be AB_Als_C, not null), gait, speed.
+	if (const UWorld* World = GetWorld(); World && World->GetTimeSeconds() >= ZombieNextDebugTime)
 	{
-		if (bFallTraversing)
-		{
-			TickFallTraversal(DeltaSeconds);
-		}
-		UpdateZombieAnim();
+		ZombieNextDebugTime = World->GetTimeSeconds() + 2.0;
+		const USkeletalMeshComponent* MeshComp = GetMesh();
+		const UAnimInstance* Anim = MeshComp ? MeshComp->GetAnimInstance() : nullptr;
+		UE_LOG(LogTemp, Warning,
+			TEXT("EMERGE_ZLOOK: %s: heartbeat zlook=%d mesh=%s animInstance=%s gait=%s action=%s spd=%.0f rendered=%d"),
+			*GetName(), bZombieLookActive ? 1 : 0,
+			MeshComp && MeshComp->GetSkeletalMeshAsset() ? *MeshComp->GetSkeletalMeshAsset()->GetName() : TEXT("NULL"),
+			Anim ? *Anim->GetClass()->GetName() : TEXT("NULL"),
+			*GetDesiredGait().GetTagName().ToString(),
+			*GetLocomotionAction().GetTagName().ToString(),
+			GetVelocity().Size2D(),
+			MeshComp && MeshComp->bRecentlyRendered ? 1 : 0);
 	}
 }
 
 void AEmergeEnemy::SetupZombieLook()
 {
-	UE_LOG(LogTemp, Warning, TEXT("EMERGE_ZLOOK: %s: SetupZombieLook begin (mesh path %s, idle=%d walk=%d chase=%d clip paths)"),
-		*GetName(), *ZombieMesh.ToString(), IdleClips.Num(), WalkClips.Num(), ChaseClips.Num());
 	USkeletalMeshComponent* MeshComp = GetMesh();
 	USkeletalMesh* Zombie = ZombieMesh.LoadSynchronous();
 	if (!MeshComp || !Zombie)
@@ -205,326 +236,42 @@ void AEmergeEnemy::SetupZombieLook()
 		return;
 	}
 
-	// Per-instance variety: each zombie rolls its own idle/walk/chase variant once at BeginPlay.
-	ZombieIdleClip = IdleClips.Num() > 0 ? IdleClips[FMath::RandRange(0, IdleClips.Num() - 1)].LoadSynchronous() : nullptr;
-	ZombieWalkClip = WalkClips.Num() > 0 ? WalkClips[FMath::RandRange(0, WalkClips.Num() - 1)].LoadSynchronous() : nullptr;
-	ZombieChaseClip = ChaseClips.Num() > 0 ? ChaseClips[FMath::RandRange(0, ChaseClips.Num() - 1)].LoadSynchronous() : nullptr;
-	if (!ZombieWalkClip || !ZombieChaseClip)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("EMERGE_ZLOOK: %s: FAIL - clips failed to load (idle=%s walk=%s chase=%s) - keeping the ALS body"),
-			*GetName(), ZombieIdleClip ? TEXT("ok") : TEXT("NULL"),
-			ZombieWalkClip ? TEXT("ok") : TEXT("NULL"), ZombieChaseClip ? TEXT("ok") : TEXT("NULL"));
-		return;
-	}
-
-	// Authored travel speed per chosen clip, cached once (the IPC clips are in-place; the speed
-	// lives in the Root_Motion sibling).
-	ZombieWalkAuthoredSpeed = AuthoredSpeedFromRootMotion(ZombieWalkClip, 80.0f);
-	ZombieChaseAuthoredSpeed = AuthoredSpeedFromRootMotion(ZombieChaseClip, 350.0f);
-
-	// The swap destroys the UAlsAnimationInstance, and AAlsCharacter::Tick early-returns without
-	// one — ALS rotation/gait refresh is dead from here on (by design for this v1: single-node
-	// playback, no AB_Als polish, no mantling anims — flat-ground scenario). Take over the two
-	// pieces the AI still needs: classic CMC orient-to-movement rotation here, and the
-	// desired-gait -> movement-component push per tick in UpdateZombieAnim. All existing ALS
-	// movement/settings logic (gait table, cornering scale, CMC driving) is untouched.
-	MeshComp->SetSkeletalMesh(Zombie);
-	MeshComp->SetAnimationMode(EAnimationMode::AnimationSingleNode);
-	// THE zombie-anim fix: ALS's constructor leaves the mesh on OnlyTickMontagesWhenNotRendered,
-	// which is correct for its anim-BP + montage pipeline but starves a SINGLE-NODE player — the
-	// sequence is not a montage, so the pose is only ever ticked while bRecentlyRendered, and the
-	// node otherwise sits "playing" at a frozen position (measured live: position never advanced).
-	// ALS normally manages this option per tick in RefreshMeshProperties, but that path is dead in
-	// zombie-look mode (AnimationInstance reset). Single-node playback must always tick.
-	MeshComp->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
-	MeshComp->SetUsingAbsoluteRotation(false);   // belt-and-braces: ALS flips this in its tick
-	MeshComp->SetRelativeLocationAndRotation(FVector(0.0f, 0.0f, -92.0f), FRotator(0.0f, -90.0f, 0.0f));
-	AnimationInstance.Reset();   // make the ALS-tick early-return deterministic (no GC-timing limbo)
-	if (UCharacterMovementComponent* Move = GetCharacterMovement())
-	{
-		Move->bOrientRotationToMovement = true;   // ALS forbids this at startup, but ALS rotation is dead now
-		Move->RotationRate = FRotator(0.0f, 240.0f, 0.0f);
-		// Curbs/street furniture are STEP-UPS, never traversals: make sure zombie-look mode walks
-		// straight over kerb-height geometry (~20-50uu) so the controller's fall traversal (gated
-		// at MinTraversalHeightUu) never has to fire on it. Nothing else in this mode touches step
-		// height (the gait table/SetChaseSpeedScale only rewrite speeds + accel curves), but set it
-		// explicitly rather than trusting the ALS default.
-		Move->MaxStepHeight = 50.0f;
-	}
+	// The whole v2 look: swap the mesh asset, change NOTHING else. AB_Als (set in the
+	// constructor) re-initializes on the zombie mesh because UE4_Mannequin_Skeleton lists
+	// SK_Als as a compatible skeleton (emerge_py/compat_skeletons.py, saved into both skeleton
+	// assets). ALS keeps owning rotation, gait, tick options, mantling — the zombie simply plays
+	// the human ALS anims until the zombie clip layer lands.
+	MeshComp->SetSkeletalMeshAsset(Zombie);
 	bZombieLookActive = true;
 	UE_LOG(LogTemp, Warning,
-		TEXT("EMERGE_ZLOOK: %s: mesh swapped OK (mesh=%s skeleton=%s), clips idle=%s walk=%s chase=%s, authored speeds walk=%.1f chase=%.1f uu/s"),
+		TEXT("EMERGE_ZLOOK: %s: mesh swapped OK (mesh=%s skeleton=%s), ALS pipeline retained (animClass=%s)"),
 		*GetName(), *Zombie->GetName(),
 		Zombie->GetSkeleton() ? *Zombie->GetSkeleton()->GetName() : TEXT("NULL"),
-		ZombieIdleClip ? *ZombieIdleClip->GetName() : TEXT("none"),
-		*ZombieWalkClip->GetName(), *ZombieChaseClip->GetName(),
-		ZombieWalkAuthoredSpeed, ZombieChaseAuthoredSpeed);
-}
-
-void AEmergeEnemy::UpdateZombieAnim()
-{
-	// Fall traversal owns the single node while active (reach/topple/recover clips) — the
-	// speed-switched loop logic below would stomp them the same tick it ran.
-	if (bFallTraversing) { return; }
-	USkeletalMeshComponent* MeshComp = GetMesh();
-	if (!MeshComp)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("EMERGE_ZLOOK: %s: UpdateZombieAnim - GetMesh() is null"), *GetName());
-		return;
-	}
-
-	// ALS's gait refresh is dead in this mode (see SetupZombieLook): push the desired gait (set by
-	// the controller's SetSpeed) straight into the movement component, which still recomputes
-	// MaxWalkSpeed from the zombie gait table every physics tick.
-	if (AlsCharacterMovement) { AlsCharacterMovement->SetMaxAllowedGait(GetDesiredGait()); }
-
-	// Speed-switched single-node playback: idle / walk variant / chase variant.
-	const float Speed2D = GetVelocity().Size2D();
-	UAnimSequence* DesiredClip;
-	float AuthoredSpeed = 0.0f;   // 0 = fixed rate 1 (idle)
-	if (Speed2D < 10.0f)
-	{
-		DesiredClip = ZombieIdleClip ? ZombieIdleClip.Get() : ZombieWalkClip.Get();
-	}
-	else if (Speed2D < (ZombieWalkSpeed + ZombieRunSpeed) * 0.5f)
-	{
-		DesiredClip = ZombieWalkClip;
-		AuthoredSpeed = ZombieWalkAuthoredSpeed;
-	}
-	else
-	{
-		DesiredClip = ZombieChaseClip;
-		AuthoredSpeed = ZombieChaseAuthoredSpeed;
-	}
-	if (!DesiredClip)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("EMERGE_ZLOOK: %s: UpdateZombieAnim - no desired clip (idle/walk/chase all null?)"), *GetName());
-		return;
-	}
-
-	// Re-issue on CHANGE only — plus whenever the node is not playing (self-heal, mirrors the old
-	// proven pattern: anything that silently stops the single node gets restarted next tick).
-	UAnimSingleNodeInstance* Node = MeshComp->GetSingleNodeInstance();
-	if (DesiredClip != ZombieCurrentClip || !Node || !Node->IsPlaying())
-	{
-		UE_LOG(LogTemp, Warning, TEXT("EMERGE_ZLOOK: %s: PlayAnimation(%s) (reason: %s)"), *GetName(), *DesiredClip->GetName(),
-			DesiredClip != ZombieCurrentClip ? TEXT("clip switch") : (!Node ? TEXT("no single-node instance") : TEXT("node stopped - self-heal")));
-		MeshComp->PlayAnimation(DesiredClip, true);
-		ZombieCurrentClip = DesiredClip;
-		Node = MeshComp->GetSingleNodeInstance();
-		if (!Node)
-		{
-			// THE silent-failure path: PlayAnimation could not create a single-node instance
-			// (skeleton missing/incompatible, mesh unset...) — the mesh would hold ref pose forever.
-			UE_LOG(LogTemp, Warning, TEXT("EMERGE_ZLOOK: %s: PlayAnimation issued but GetSingleNodeInstance() is STILL NULL (mesh=%s mode=%d)"),
-				*GetName(), MeshComp->GetSkeletalMeshAsset() ? *MeshComp->GetSkeletalMeshAsset()->GetName() : TEXT("NULL"),
-				static_cast<int32>(MeshComp->GetAnimationMode()));
-		}
-		if (!bZombieFirstPlayDone && Node)
-		{
-			// Desync the horde: random start phase so identical variants don't march in lockstep.
-			Node->SetPosition(FMath::FRandRange(0.0f, DesiredClip->GetPlayLength()), false);
-			bZombieFirstPlayDone = true;
-		}
-	}
-	// Every tick: match playback to actual travel speed (kills foot-sliding within the clamp band).
-	if (Node)
-	{
-		Node->SetPlayRate(AuthoredSpeed > UE_KINDA_SMALL_NUMBER
-			? FMath::Clamp(Speed2D / AuthoredSpeed, 0.6f, 1.6f) : 1.0f);
-	}
-
-	// EMERGE_ZLOOK heartbeat (2s cadence): the ground truth of what the single node is doing —
-	// existence, playing state, position ADVANCE since last beat (a playing-but-frozen node means
-	// the pose isn't being ticked, e.g. a visibility-based anim tick option starving it).
-	if (const UWorld* World = GetWorld(); World && World->GetTimeSeconds() >= ZombieNextDebugTime)
-	{
-		ZombieNextDebugTime = World->GetTimeSeconds() + 2.0;
-		const float Pos = Node ? Node->GetCurrentTime() : -1.0f;
-		UE_LOG(LogTemp, Warning,
-			TEXT("EMERGE_ZLOOK: %s: heartbeat clip=%s node=%s playing=%s pos=%.2f (last %.2f) rate=%.2f spd=%.0f mesh=%s rendered=%d tickOpt=%d visible=%d"),
-			*GetName(), ZombieCurrentClip ? *ZombieCurrentClip->GetName() : TEXT("none"),
-			Node ? TEXT("yes") : TEXT("NULL"), Node && Node->IsPlaying() ? TEXT("yes") : TEXT("no"),
-			Pos, ZombieLastDebugPosition, Node ? Node->GetPlayRate() : 0.0f, Speed2D,
-			MeshComp->GetSkeletalMeshAsset() ? *MeshComp->GetSkeletalMeshAsset()->GetName() : TEXT("NULL"),
-			MeshComp->bRecentlyRendered ? 1 : 0, static_cast<int32>(MeshComp->VisibilityBasedAnimTickOption),
-			MeshComp->IsVisible() ? 1 : 0);
-		ZombieLastDebugPosition = Pos;
-	}
-}
-
-bool AEmergeEnemy::StartFallTraversal(const FVector& ObstacleTopPoint, const FVector& LandingPoint)
-{
-	// Zombie-look only (the ALS body mantles instead), one traversal at a time, never from the air
-	// (a scripted lerp starting mid-fall would read as a teleport-glide).
-	UCharacterMovementComponent* Move = GetCharacterMovement();
-	if (!bZombieLookActive || bFallTraversing || !Move || !Move->IsMovingOnGround()) { return false; }
-
-	// Belt-and-suspenders height gate (the controller already gates at MinTraversalHeightUu):
-	// curbs/street furniture below ~55uu are step-ups (MaxStepHeight = 50 in SetupZombieLook),
-	// never traversals — a scripted topple over a kerb reads as a broken animation loop.
-	const float FeetZ = GetActorLocation().Z - GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
-	if (ObstacleTopPoint.Z - FeetZ < 55.0f) { return false; }
-
-	// Per-traversal randomization: one clip of each stage + rates + recovery pause, rolled fresh
-	// every wall so a horde toppling the same fence doesn't sync up.
-	ZombieReachClip = TraversalReachClips.Num() > 0
-		? TraversalReachClips[FMath::RandRange(0, TraversalReachClips.Num() - 1)].LoadSynchronous() : nullptr;
-	ZombieToppleClip = TraversalToppleClips.Num() > 0
-		? TraversalToppleClips[FMath::RandRange(0, TraversalToppleClips.Num() - 1)].LoadSynchronous() : nullptr;
-	ZombieRecoverClip = TraversalRecoverClips.Num() > 0
-		? TraversalRecoverClips[FMath::RandRange(0, TraversalRecoverClips.Num() - 1)].LoadSynchronous() : nullptr;
-	if (!ZombieReachClip || !ZombieToppleClip)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("%s: fall-traversal clips failed to load - traversal refused"), *GetName());
-		return false;
-	}
-
-	const float HalfH = GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
-	FallStart = GetActorLocation();
-	FallApex = ObstacleTopPoint + FVector(0.0f, 0.0f, HalfH + 12.0f);   // capsule bottom just clears the lip
-	FallLand = LandingPoint + FVector(0.0f, 0.0f, HalfH);
-	FallPhase = 0;
-	FallPhaseTime = 0.0f;
-	FallElapsed = 0.0f;
-	FallRecoverPause = FMath::FRandRange(0.4f, 0.9f);
-
-	// Scripted world-space move: MOVE_Flying so the CMC neither applies gravity nor fights the
-	// SetActorLocation lerp. Collision stays ON — the lerp sweeps false, but the endpoints were
-	// traced clear by the controller.
-	Move->StopMovementImmediately();
-	Move->SetMovementMode(MOVE_Flying);
-
-	// Rise stage: reach loop = the zombie clawing/dragging itself up the wall face, slowed.
-	PlayTraversalClip(ZombieReachClip, true, FMath::FRandRange(0.7f, 0.9f));
-	ZombieCurrentClip = nullptr;   // force UpdateZombieAnim to re-issue a loop when we hand back
-	bFallTraversing = true;
-	++FallTraversalCount;
-	return true;
-}
-
-void AEmergeEnemy::TickFallTraversal(const float DeltaSeconds)
-{
-	// Watchdog: never leave a zombie stuck flying — whatever went wrong (destroyed floor, mid-lerp
-	// possession swap, bad durations), snap to the landing and hand back to walking.
-	FallElapsed += DeltaSeconds;
-	if (FallElapsed > 4.0f)
-	{
-		SetActorLocation(FallLand, false);
-		FinishFallTraversal();
-		return;
-	}
-
-	FallPhaseTime += DeltaSeconds;
-	if (FallPhase == 0)
-	{
-		// Segment 1: drag up and forward to above the obstacle lip — SLOW, a shambler hauling
-		// itself up, nothing like a jump.
-		const float T = FMath::Clamp(FallPhaseTime / FMath::Max(FallRiseSeconds, 0.1f), 0.0f, 1.0f);
-		SetActorLocation(FMath::Lerp(FallStart, FallApex, FMath::SmoothStep(0.0f, 1.0f, T)), false);
-		if (T >= 1.0f)
-		{
-			FallPhase = 1;
-			FallPhaseTime = 0.0f;
-			// Topple stage: stand-to-crawl collapse played once — falling forward over the edge.
-			PlayTraversalClip(ZombieToppleClip, false, FMath::FRandRange(0.7f, 0.9f));
-		}
-	}
-	else if (FallPhase == 1)
-	{
-		// Segment 2: forward and down to the far-side floor with a slight arc (the body pitches
-		// over the lip rather than sliding down a straight ramp line).
-		const float T = FMath::Clamp(FallPhaseTime / FMath::Max(FallDropSeconds, 0.1f), 0.0f, 1.0f);
-		FVector Pos = FMath::Lerp(FallApex, FallLand, FMath::SmoothStep(0.0f, 1.0f, T));
-		Pos.Z += FMath::Sin(T * UE_PI) * 12.0f;
-		SetActorLocation(Pos, false);
-		if (T >= 1.0f)
-		{
-			FallPhase = 2;
-			FallPhaseTime = 0.0f;
-			// Landed: crawl-to-stand scramble while the capsule holds still (shamblers struggle up).
-			if (ZombieRecoverClip)
-			{
-				PlayTraversalClip(ZombieRecoverClip, false, FMath::FRandRange(0.85f, 1.1f));
-			}
-		}
-	}
-	else if (FallPhaseTime >= FallRecoverPause)
-	{
-		FinishFallTraversal();
-	}
-}
-
-void AEmergeEnemy::FinishFallTraversal()
-{
-	if (UCharacterMovementComponent* Move = GetCharacterMovement())
-	{
-		Move->SetMovementMode(MOVE_Walking);
-		Move->StopMovementImmediately();
-	}
-	bFallTraversing = false;
-	FallPhase = 0;
-	// ZombieCurrentClip has been null since StartFallTraversal: UpdateZombieAnim re-issues the
-	// right speed-switched loop on its next tick (its self-heal path also covers the non-looping
-	// recover clip having finished).
-}
-
-void AEmergeEnemy::PlayTraversalClip(UAnimSequence* Clip, const bool bLooping, const float Rate)
-{
-	USkeletalMeshComponent* MeshComp = GetMesh();
-	if (!MeshComp || !Clip) { return; }
-	MeshComp->PlayAnimation(Clip, bLooping);
-	if (UAnimSingleNodeInstance* Node = MeshComp->GetSingleNodeInstance())
-	{
-		Node->SetPlayRate(Rate);
-	}
-}
-
-float AEmergeEnemy::AuthoredSpeedFromRootMotion(const UAnimSequence* IpcClip, const float FallbackSpeed)
-{
-	if (!IpcClip) { return FallbackSpeed; }
-	// Root_Motion sibling = same asset name minus the _IPC suffix.
-	FString RootMotionName = IpcClip->GetName();
-	RootMotionName.RemoveFromEnd(TEXT("_IPC"));
-	const FSoftObjectPath RootMotionPath(
-		FString::Printf(TEXT("/Game/Zombie_01/Animation/Root_Motion/%s.%s"), *RootMotionName, *RootMotionName));
-	if (const UAnimSequence* RootMotionSeq = Cast<UAnimSequence>(RootMotionPath.TryLoad()))
-	{
-		const float Length = RootMotionSeq->GetPlayLength();
-		if (Length > UE_KINDA_SMALL_NUMBER)
-		{
-			const FAnimExtractContext ExtractionContext;
-			const float Speed = RootMotionSeq->ExtractRootMotionFromRange(0.0f, Length, ExtractionContext)
-				.GetTranslation().Size2D() / Length;
-			if (Speed >= 10.0f) { return Speed; }   // <10 uu/s = broken/authoring-less extraction
-		}
-	}
-	UE_LOG(LogTemp, Warning,
-		TEXT("Zombie clip %s: authored-speed extraction from Root_Motion sibling failed - falling back to %.0f uu/s"),
-		*IpcClip->GetName(), FallbackSpeed);
-	return FallbackSpeed;
+		MeshComp->GetAnimClass() ? *MeshComp->GetAnimClass()->GetName() : TEXT("NULL"));
 }
 
 UAlsMantlingSettings* AEmergeEnemy::SelectMantlingSettings_Implementation(EAlsMantlingType MantlingType)
 {
+	// Zombie mantle variety: roll a random speed variant PER MANTLE (that roll IS the variance —
+	// the 3 variants are the same ALS montage rate-scaled to 0.50/0.60/0.72). Non-zombie (or an
+	// empty bank, i.e. make_zombie_mantles.py not run yet) falls back to the original single
+	// player-speed settings.
+	const TArray<TObjectPtr<UAlsMantlingSettings>>& Bank =
+		(MantlingType == EAlsMantlingType::Low) ? ZombieMantleLow : ZombieMantleHigh;
+	if (bZombieLookActive && Bank.Num() > 0)
+	{
+		return Bank[FMath::RandRange(0, Bank.Num() - 1)];
+	}
 	return (MantlingType == EAlsMantlingType::Low) ? MantlingSettingsLow : MantlingSettingsHigh;
-}
-
-bool AEmergeEnemy::IsMantlingAllowedToStart_Implementation() const
-{
-	// Zombie look = single-node mode: mantling montages need an anim instance we no longer have
-	// (flat-ground scenario for the basic-mechanics test) — refuse cleanly so the controller's
-	// traversal hop just no-ops instead of Montage_Play-ing into a single-node instance.
-	return !bZombieLookActive && Super::IsMantlingAllowedToStart_Implementation();
 }
 
 FString AEmergeEnemy::GetAnimDebug() const
 {
 	const USkeletalMeshComponent* MeshComp = GetMesh();
 	const UAnimInstance* Anim = MeshComp ? MeshComp->GetAnimInstance() : nullptr;
-	return FString::Printf(TEXT("{\"anim\":%s,\"gait\":\"%s\",\"action\":\"%s\",\"spd\":%.0f,\"fallTraversing\":%s,\"fallTraversals\":%d}"),
+	return FString::Printf(TEXT("{\"anim\":%s,\"gait\":\"%s\",\"action\":\"%s\",\"spd\":%.0f,\"zombieLook\":%s}"),
 		Anim ? *FString::Printf(TEXT("\"%s\""), *Anim->GetClass()->GetName()) : TEXT("null"),
 		*GetDesiredGait().GetTagName().ToString(),
 		*GetLocomotionAction().GetTagName().ToString(), GetVelocity().Size2D(),
-		bFallTraversing ? TEXT("true") : TEXT("false"), FallTraversalCount);
+		bZombieLookActive ? TEXT("true") : TEXT("false"));
 }

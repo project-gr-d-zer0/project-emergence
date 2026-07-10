@@ -55,15 +55,11 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float CornerFullDeg = 180.0f;   // deg/s: at/above = MinScale
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float CornerMinScale = 0.65f;
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float CornerRecoverSeconds = 0.7f;  // dip hold: juke opens a real gap
-	// Traversal: knee-blocked + head-clear ahead -> ALS-body pawns run the character's own ALS
-	// StartMantling (the IDENTICAL mantle the player performs); zombie-look AEmergeEnemy pawns run
-	// the scripted StartFallTraversal topple instead (no anim instance = no mantle montages).
+	// Traversal: knee-blocked + head-clear ahead -> every pawn (ALS body OR compatible-skeletons
+	// zombie mesh) runs the character's own ALS StartMantling — the IDENTICAL mantle the player
+	// performs. ALS's own trace bands handle the height gating (~50uu walls up).
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float HopTriggerDist = 90.0f;
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float HopClearHeightUu = 140.0f;   // max mantleable band
-	// Minimum obstacle-top height above feet for the zombie fall traversal. Anything lower (street
-	// curbs, kerbstones, low debris — the knee probe at ~45uu still hits their faces) is a plain
-	// CharacterMovement step-up (MaxStepHeight = 50 on the zombie), NEVER a traversal.
-	UPROPERTY(EditAnywhere, Category = "Emerge|Traversal") float MinTraversalHeightUu = 60.0f;
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float HopCooldownSeconds = 1.2f;
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float GiveUpSeconds = 15.0f;
 
