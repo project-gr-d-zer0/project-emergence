@@ -73,6 +73,24 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Emerge|Nav")
 	bool FleeFrom(FVector ThreatPos);
 
+	// Continuous dynamic evasion (strategic layer v1): FleeFrom made continuous. Replans on a
+	// cadence (or instantly when the threat closes under EvadeDangerRadius), scores ring
+	// candidates by whole-path clearance from the threat (rejecting routes that pass NEAR the
+	// zombie even if the endpoint is far), and jogs to the best at Running gait — no sprint, the
+	// stamina system stays untouched while merely evading (stock run 375 vs walker 150 = ample
+	// margin). Must survive indefinitely vs a 150 uu/s walker on its own.
+	UFUNCTION(BlueprintCallable, Category = "Emerge|Nav")
+	void StartEvading(AActor* Threat);
+	UFUNCTION(BlueprintCallable, Category = "Emerge|Nav")
+	void StopEvading();
+
+	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") float EvadeReplanSeconds = 0.5f;
+	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") float EvadeComfortRadius = 900.0f;   // beyond: relaxed cadence (1s), lazy jog
+	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") float EvadeDangerRadius = 450.0f;    // crossing under: replan NOW (event, no timer wait)
+	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") TArray<float> EvadeRingRadii = { 600.0f, 900.0f };
+	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") int32 EvadeCandidatesPerRing = 10;
+	UPROPERTY(EditAnywhere, Category = "Emerge|Evade") float EvadeHysteresisPct = 0.15f;    // keep current goal unless the new best beats it by this
+
 	// Structured spatial snapshot for autonomous testing: player movement, game camera POV,
 	// LIDAR rays (walls/floor/ceiling distances + hit names), and nearby actors. Read via Remote Control.
 	UFUNCTION(BlueprintCallable, Category = "Emerge|Sensor")
@@ -110,4 +128,18 @@ private:
 	bool bNavMakingProgress = false;
 	bool ComputePathTo(FVector Destination);
 	void RestoreNavFacing();
+
+	// Continuous-evasion state.
+	TWeakObjectPtr<AActor> EvadeThreat;
+	bool bEvading = false;
+	float EvadeReplanTimer = 0.0f;
+	float EvadeBiasAngleDeg = 0.0f;     // slowly drifting ring-angle bias (kills orbit predictability)
+	float EvadeBiasRerollTime = 0.0f;   // world time of the next ±25° bias re-roll (every 5-10s)
+	bool bEvadeWasInDanger = false;     // edge detector for the danger-radius crossing
+	FVector EvadeGoal = FVector::ZeroVector;
+	float EvadeGoalScore = 0.0f;        // telemetry: score of the currently selected goal
+	float EvadeThreatDist = -1.0f;      // telemetry
+	bool bEvadeCornered = false;        // telemetry: tangential-escape tripwire fired on last replan
+	void TickEvade(float DeltaSeconds);
+	bool ReplanEvade(const FVector& ThreatPos);
 };

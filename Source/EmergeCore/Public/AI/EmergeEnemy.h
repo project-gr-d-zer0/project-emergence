@@ -5,6 +5,8 @@
 
 class UAlsMovementSettings;
 class UAlsMantlingSettings;
+class UAnimSequence;
+class USkeletalMesh;
 enum class EAlsMantlingType : uint8;
 
 // Phase A enemy: a full ALS character — the SAME locomotion + mantle system as the player, so
@@ -21,7 +23,9 @@ public:
 
 	virtual void PostInitializeComponents() override;
 	virtual void BeginPlay() override;
+	virtual void Tick(float DeltaSeconds) override;
 	virtual UAlsMantlingSettings* SelectMantlingSettings_Implementation(EAlsMantlingType MantlingType) override;
+	virtual bool IsMantlingAllowedToStart_Implementation() const override;
 
 	// Anim-state oracle for RC (debugging pose/anim issues).
 	UFUNCTION(BlueprintCallable, Category = "Emerge|Anim")
@@ -32,6 +36,19 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Emerge") float ZombieWalkSpeed = 150.0f;
 	UPROPERTY(EditAnywhere, Category = "Emerge") float ZombieRunSpeed = 560.0f;
 	UPROPERTY(EditAnywhere, Category = "Emerge") float ZombieSprintSpeed = 650.0f;
+
+	// Zombie visual + locomotion look (v1 single-node route): BeginPlay swaps the ALS body for the
+	// MoCap Online zombie mesh and drives animation as speed-switched single-node playback (idle /
+	// walk / chase variant per instance, play rate = actual speed / authored root-motion speed).
+	// This deliberately bypasses AB_Als/ALS anim polish for the basic-mechanics test; mantling
+	// anims are unavailable in this mode (flat-ground scenario), so mantling is disabled while
+	// active. false = exactly the current ALS body + behavior (movement stays CMC-driven either
+	// way — the clips are in-place, correct for CMC-driven AI per research).
+	UPROPERTY(EditAnywhere, Category = "Emerge|ZombieLook") bool bUseZombieLook = true;
+	UPROPERTY(EditAnywhere, Category = "Emerge|ZombieLook") TSoftObjectPtr<USkeletalMesh> ZombieMesh;
+	UPROPERTY(EditAnywhere, Category = "Emerge|ZombieLook") TArray<TSoftObjectPtr<UAnimSequence>> IdleClips;
+	UPROPERTY(EditAnywhere, Category = "Emerge|ZombieLook") TArray<TSoftObjectPtr<UAnimSequence>> WalkClips;
+	UPROPERTY(EditAnywhere, Category = "Emerge|ZombieLook") TArray<TSoftObjectPtr<UAnimSequence>> ChaseClips;
 
 	// Cornering slowdown: rewrites the run speeds in the DUPLICATED movement settings and re-hands
 	// them to the ALS movement component. On ALS characters MaxWalkSpeed/MaxAcceleration/braking are
@@ -49,4 +66,18 @@ protected:
 
 private:
 	float LastChaseSpeedScale = -1.0f;   // last applied scale; re-apply only on >0.02 change (no per-tick churn)
+
+	// Zombie-look runtime state. Hard refs to the rolled clips (loaded in BeginPlay) so GC can't
+	// drop them out from under the single-node player.
+	UPROPERTY(Transient) TObjectPtr<UAnimSequence> ZombieIdleClip;
+	UPROPERTY(Transient) TObjectPtr<UAnimSequence> ZombieWalkClip;
+	UPROPERTY(Transient) TObjectPtr<UAnimSequence> ZombieChaseClip;
+	UPROPERTY(Transient) TObjectPtr<UAnimSequence> ZombieCurrentClip;
+	float ZombieWalkAuthoredSpeed = 80.0f;    // uu/s from the Root_Motion sibling (fallback 80)
+	float ZombieChaseAuthoredSpeed = 350.0f;  // uu/s from the Root_Motion sibling (fallback 350)
+	bool bZombieLookActive = false;           // mesh swap + single-node mode actually engaged
+	bool bZombieFirstPlayDone = false;        // first-play random-phase desync issued
+	void SetupZombieLook();
+	void UpdateZombieAnim();
+	static float AuthoredSpeedFromRootMotion(const UAnimSequence* IpcClip, float FallbackSpeed);
 };

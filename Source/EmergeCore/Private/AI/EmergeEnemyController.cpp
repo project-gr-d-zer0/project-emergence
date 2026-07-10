@@ -92,6 +92,13 @@ void AEmergeEnemyController::Tick(float DeltaSeconds)
 
 	const float Dist = FVector::Dist(Self->GetActorLocation(), Target->GetActorLocation());
 
+	// Debug omniscience (temporary until the vision/hearing awareness zones phase): force the
+	// perception INPUT true each update, level-triggered — never pin the FSM state. Everything
+	// downstream (awareness ramp, grid stamping, transitions) runs normally on always-seen data;
+	// the seen branch below already stamps the influence grid EVERY update (level-triggered,
+	// verified), so no extra stamp guard is needed.
+	if (bDebugOmniscient) { bTargetVisible = true; }
+
 	// Point-blank presence: within PresenceRadius with clear line-of-sight counts as seen even
 	// outside the vision cone (measured 2026-07-09: enemy gave up standing 69uu from the player
 	// because it arrived facing past him). Zombies sense you at arm's length.

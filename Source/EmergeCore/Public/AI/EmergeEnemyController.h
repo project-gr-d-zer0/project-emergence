@@ -62,6 +62,12 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float HopCooldownSeconds = 1.2f;
 	UPROPERTY(EditAnywhere, Category = "Emerge|AI") float GiveUpSeconds = 15.0f;
 
+	// Omniscient tracking (temporary until the vision/hearing awareness zones phase): forces the
+	// perception INPUTS (sight gate + presence) true every update, level-triggered — the awareness
+	// ramp, influence-grid stamping, and FSM transitions all still run normally, just on
+	// always-seen data. Never pins the FSM state directly.
+	UPROPERTY(EditAnywhere, Category = "Emerge|Debug") bool bDebugOmniscient = false;
+
 	UFUNCTION() void OnPerception(AActor* Actor, FAIStimulus Stimulus);
 
 	// Shared world belief: stamped on sight, searched (drifting peak) when the target is lost.

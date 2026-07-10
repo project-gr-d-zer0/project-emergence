@@ -181,6 +181,12 @@ void AEmergeCharacter::Tick(float DeltaSeconds)
 		AirTime = bGnd ? 0.0f : AirTime + DeltaSeconds;
 	}
 
+	// Continuous evasion: replan-and-flee loop feeding the nav-follower below with fresh goals.
+	if (bEvading)
+	{
+		TickEvade(DeltaSeconds);
+	}
+
 	// nav-follow: steer toward the current path waypoint (manual follower, drives ALS via AddMovementInput).
 	if (bNavigating && NavPath.IsValidIndex(NavIdx))
 	{
@@ -605,10 +611,12 @@ FString AEmergeCharacter::GetNavProgress()
 	const float PathRem = bNavigating ? UEmergeNavPathLen::RemainingLength(NavPath, NavIdx, Cur) : 0.0f;
 	const float Eta = UEmergeNavEta::EtaSeconds(PathRem, GetVelocity().Size2D());
 	return FString::Printf(
-		TEXT("{\"state\":\"%s\",\"navigating\":%s,\"waypoint\":%d,\"total\":%d,\"distRemaining\":%.0f,\"pathRemaining\":%.0f,\"etaSeconds\":%.1f,\"makingProgress\":%s,\"repaths\":%d,\"vaults\":%d,\"stuckTime\":%.1f,\"turnErrDeg\":%.0f,\"stamina\":%.0f,\"sprintExhausted\":%s}"),
+		TEXT("{\"state\":\"%s\",\"navigating\":%s,\"waypoint\":%d,\"total\":%d,\"distRemaining\":%.0f,\"pathRemaining\":%.0f,\"etaSeconds\":%.1f,\"makingProgress\":%s,\"repaths\":%d,\"vaults\":%d,\"stuckTime\":%.1f,\"turnErrDeg\":%.0f,\"stamina\":%.0f,\"sprintExhausted\":%s,\"evading\":%s,\"threatDist\":%d,\"evadeScore\":%d,\"cornered\":%s}"),
 		*NavState, bNavigating ? TEXT("true") : TEXT("false"), NavIdx, NavPath.Num(), DistRem, PathRem, Eta,
 		bNavMakingProgress ? TEXT("true") : TEXT("false"), NavRepathCount, NavVaultCount, NavStuckTime, NavTurnErrorDeg,
-		Stamina ? Stamina->Stamina : -1.0f, bSprintExhausted ? TEXT("true") : TEXT("false"));
+		Stamina ? Stamina->Stamina : -1.0f, bSprintExhausted ? TEXT("true") : TEXT("false"),
+		bEvading ? TEXT("true") : TEXT("false"), (int32)EvadeThreatDist, (int32)EvadeGoalScore,
+		bEvadeCornered ? TEXT("true") : TEXT("false"));
 }
 
 void AEmergeCharacter::RestoreNavFacing()
@@ -687,5 +695,166 @@ bool AEmergeCharacter::FleeFrom(FVector ThreatPos)
 	if (!NavigateTo(BestGoal)) { return false; }
 	bFleeing = true;
 	SetSprinting(true);
+	return true;
+}
+
+void AEmergeCharacter::StartEvading(AActor* Threat)
+{
+	if (!Threat) { return; }
+	EvadeThreat = Threat;
+	bEvading = true;
+	bEvadeWasInDanger = false;
+	bEvadeCornered = false;
+	EvadeGoal = FVector::ZeroVector;
+	EvadeGoalScore = 0.0f;
+	EvadeReplanTimer = 0.0f;      // replan on the very next tick
+	EvadeBiasRerollTime = 0.0f;   // roll a fresh bias immediately
+	// Running gait only ("slow jog"): do NOT engage the sprint/stamina system while merely
+	// evading in the comfort band — sprint stays in reserve for a real emergency.
+	SetSprinting(false);
+}
+
+void AEmergeCharacter::StopEvading()
+{
+	if (!bEvading) { return; }
+	bEvading = false;
+	EvadeThreat = nullptr;
+	EvadeThreatDist = -1.0f;
+	bEvadeCornered = false;
+	StopNavigating();
+}
+
+void AEmergeCharacter::TickEvade(const float DeltaSeconds)
+{
+	UWorld* World = GetWorld();
+	if (!World || !EvadeThreat.IsValid())
+	{
+		StopEvading();   // threat despawned: nothing left to evade
+		return;
+	}
+	const FVector ThreatPos = EvadeThreat->GetActorLocation();
+	EvadeThreatDist = FVector::Dist2D(GetActorLocation(), ThreatPos);
+
+	// Slowly drifting bias angle: re-rolled ±25° every 5-10s so ring picks never settle into a
+	// predictable orbit around the threat.
+	if (World->GetTimeSeconds() >= EvadeBiasRerollTime)
+	{
+		EvadeBiasAngleDeg = FMath::FRandRange(-25.0f, 25.0f);
+		EvadeBiasRerollTime = World->GetTimeSeconds() + FMath::FRandRange(5.0f, 10.0f);
+	}
+
+	// Replan on timer — relaxed cadence while lazily jogging outside the comfort band — OR
+	// immediately when the threat crosses under the danger radius (event, don't wait the timer out).
+	const bool bInDanger = EvadeThreatDist < EvadeDangerRadius;
+	const bool bDangerCrossed = bInDanger && !bEvadeWasInDanger;
+	bEvadeWasInDanger = bInDanger;
+	EvadeReplanTimer -= DeltaSeconds;
+	if (EvadeReplanTimer <= 0.0f || bDangerCrossed)
+	{
+		const float Cadence = (EvadeThreatDist > EvadeComfortRadius) ? 1.0f : EvadeReplanSeconds;
+		// Failed replan (no candidates at all): retry quickly instead of standing still a full cadence.
+		EvadeReplanTimer = ReplanEvade(ThreatPos) ? Cadence : 0.25f;
+	}
+}
+
+bool AEmergeCharacter::ReplanEvade(const FVector& ThreatPos)
+{
+	UWorld* World = GetWorld();
+	UNavigationSystemV1* Nav = World ? FNavigationSystem::GetCurrent<UNavigationSystemV1>(World) : nullptr;
+	if (!Nav) { return false; }
+
+	const FVector Self = GetActorLocation();
+	// Ground-plane away direction with the same degenerate-threat fallback as FleeFrom.
+	FVector Away = UEmergeFlee::FleeDirection(Self, ThreatPos);
+	Away.Z = 0.0f;
+	Away = Away.GetSafeNormal();
+	if (Away.IsNearlyZero())
+	{
+		Away = -GetActorForwardVector();
+		Away.Z = 0.0f;
+		Away = Away.GetSafeNormal();
+		if (Away.IsNearlyZero()) { return false; }
+	}
+	const FVector2D Away2D(Away.X, Away.Y);
+	FVector ThreatDir = ThreatPos - Self;
+	ThreatDir.Z = 0.0f;
+	const FVector2D ThreatDir2D = FVector2D(ThreatDir.X, ThreatDir.Y).GetSafeNormal();
+
+	// Candidate rings around SELF: evenly spaced, plus a fresh per-replan jitter and the drifting
+	// bias angle. The away-from-threat term below supplies the directionality; sampling the full
+	// circle keeps tangential and even threat-side routes on the table (they can be the only way
+	// out of a pocket).
+	const float JitterDeg = FMath::FRandRange(-18.0f, 18.0f);
+	const int32 PerRing = FMath::Max(1, EvadeCandidatesPerRing);
+	int32 CandidateCount = 0;
+	int32 FailedCount = 0;      // failed projection or no complete path
+	float BestScore = -FLT_MAX;
+	FVector BestGoal = FVector::ZeroVector;
+	bool bFound = false;
+	float BestPerp = FLT_MAX;   // |dot(candidate dir, threat dir)| — smaller = more perpendicular
+	FVector BestPerpGoal = FVector::ZeroVector;
+	bool bPerpFound = false;
+
+	for (const float Ring : EvadeRingRadii)
+	{
+		for (int32 i = 0; i < PerRing; ++i)
+		{
+			++CandidateCount;
+			const float AngleDeg = (360.0f / PerRing) * i + JitterDeg + EvadeBiasAngleDeg;
+			const FVector Dir = Away.RotateAngleAxis(AngleDeg, FVector::UpVector);
+			FNavLocation Projected;
+			if (!Nav->ProjectPointToNavigation(Self + Dir * Ring, Projected, FVector(500.0f, 500.0f, 1000.0f)))
+			{
+				++FailedCount;
+				continue;
+			}
+			UNavigationPath* Path = UNavigationSystemV1::FindPathToLocationSynchronously(World, Self, Projected.Location);
+			if (!Path || !Path->IsValid() || Path->IsPartial() || Path->PathPoints.Num() < 2)
+			{
+				++FailedCount;
+				continue;
+			}
+
+			// THE key upgrade over FleeFrom: score by the whole path's clearance from the threat's
+			// CURRENT position — a far endpoint whose route passes right next to the zombie loses.
+			float MinPathClear = FLT_MAX;
+			for (const FVector& Point : Path->PathPoints)
+			{
+				MinPathClear = FMath::Min(MinPathClear, (float)FVector::Dist2D(Point, ThreatPos));
+			}
+			const float Euclid = FMath::Max((float)FVector::Dist2D(Self, Projected.Location), 1.0f);
+			const float PocketPenalty = FMath::Max(0.0f, Path->GetPathLength() / Euclid - 1.4f) * 300.0f;
+			const FVector2D CandDir = FVector2D(Projected.Location.X - Self.X, Projected.Location.Y - Self.Y).GetSafeNormal();
+			const float AwayDot = FVector2D::DotProduct(CandDir, Away2D);
+			float Score = 1.0f * MinPathClear - 0.6f * PocketPenalty + 0.25f * AwayDot * 300.0f;
+
+			// Hysteresis: a candidate near the current goal gets a bonus so we only redirect when
+			// the new best genuinely beats staying the course by EvadeHysteresisPct.
+			if (bNavigating && !EvadeGoal.IsZero() && FVector::Dist2D(Projected.Location, EvadeGoal) < 150.0f && Score > 0.0f)
+			{
+				Score *= 1.0f + EvadeHysteresisPct;
+			}
+
+			if (Score > BestScore) { BestScore = Score; BestGoal = Projected.Location; bFound = true; }
+			const float Perp = FMath::Abs(FVector2D::DotProduct(CandDir, ThreatDir2D));
+			if (Perp < BestPerp) { BestPerp = Perp; BestPerpGoal = Projected.Location; bPerpFound = true; }
+		}
+	}
+
+	// Cornered tripwire: threat on top of us and most candidates dead -> tangential escape. Take
+	// the most PERPENDICULAR surviving candidate regardless of its distance score (running "past"
+	// the zombie sideways beats being pinned against the wall behind us).
+	bEvadeCornered = FVector::Dist2D(Self, ThreatPos) < 250.0f
+		&& CandidateCount > 0 && (float)FailedCount / (float)CandidateCount > 0.6f;
+	if (bEvadeCornered && bPerpFound)
+	{
+		BestGoal = BestPerpGoal;
+		bFound = true;
+	}
+	if (!bFound) { return false; }
+
+	if (!NavigateTo(BestGoal)) { return false; }
+	EvadeGoal = BestGoal;
+	EvadeGoalScore = BestScore;
 	return true;
 }
