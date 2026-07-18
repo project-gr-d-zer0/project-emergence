@@ -59,6 +59,18 @@ public class EmergeCore : ModuleRules
             "#include \"Combat/EmergeBallisticAccuracyResolver.h\"\n" +
             "using UBallisticAccuracyResolver = UEmergeBallisticAccuracyResolver;\n");
 
+        // Same shim pattern for the safe-zone-arbiter acceptance spec, which includes
+        // "World/SafeZoneArbiter.h" and references "USafeZoneArbiter" directly (legacy naming).
+        // Real implementation lives properly named at
+        // Public/World/EmergeSafeZoneArbiter.h (UEmergeSafeZoneArbiter).
+        string GeneratedWorldDir = Path.Combine(GeneratedDir, "World");
+        Directory.CreateDirectory(GeneratedWorldDir);
+        File.WriteAllText(Path.Combine(GeneratedWorldDir, "SafeZoneArbiter.h"),
+            "#pragma once\n" +
+            "// AUTO-GENERATED forwarding shim (see EmergeCore.Build.cs) — do not edit, do not check in.\n" +
+            "#include \"World/EmergeSafeZoneArbiter.h\"\n" +
+            "using USafeZoneArbiter = UEmergeSafeZoneArbiter;\n");
+
         PublicIncludePaths.Add(GeneratedDir);
     }
 }
