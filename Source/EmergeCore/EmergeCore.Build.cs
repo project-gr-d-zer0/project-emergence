@@ -49,6 +49,16 @@ public class EmergeCore : ModuleRules
             "#include \"Crafting/EmergeCraftingRecipe.h\"\n" +
             "using UCraftingRecipe = UEmergeCraftingRecipe;\n");
 
+        // Same shim pattern for the ballistic-accuracy acceptance spec, which includes
+        // "BallisticAccuracyResolver.h" and references "UBallisticAccuracyResolver" directly
+        // (legacy naming). Real implementation lives properly named at
+        // Public/Combat/EmergeBallisticAccuracyResolver.h (UEmergeBallisticAccuracyResolver).
+        File.WriteAllText(Path.Combine(GeneratedDir, "BallisticAccuracyResolver.h"),
+            "#pragma once\n" +
+            "// AUTO-GENERATED forwarding shim (see EmergeCore.Build.cs) — do not edit, do not check in.\n" +
+            "#include \"Combat/EmergeBallisticAccuracyResolver.h\"\n" +
+            "using UBallisticAccuracyResolver = UEmergeBallisticAccuracyResolver;\n");
+
         PublicIncludePaths.Add(GeneratedDir);
     }
 }
