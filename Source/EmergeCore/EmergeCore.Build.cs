@@ -20,6 +20,7 @@ public class EmergeCore : ModuleRules
             Path.Combine(ModuleDirectory, "Public", "Survival"),
             Path.Combine(ModuleDirectory, "Public", "Nav"),
             Path.Combine(ModuleDirectory, "Public", "Anim"),
+            Path.Combine(ModuleDirectory, "Public", "Crafting"),
         });
 
         // Legacy-named test compatibility shim: one acceptance spec includes "CombatBallistics.h"
@@ -38,6 +39,16 @@ public class EmergeCore : ModuleRules
             "// AUTO-GENERATED forwarding shim (see EmergeCore.Build.cs) — do not edit, do not check in.\n" +
             "#include \"Combat/EmergeCombatBallistics.h\"\n" +
             "using UCombatBallistics = UEmergeCombatBallistics;\n");
+
+        // Same shim pattern for the crafting acceptance spec, which includes "CraftingRecipe.h"
+        // and references "UCraftingRecipe" directly (legacy naming). Real implementation lives
+        // properly named at Public/Crafting/EmergeCraftingRecipe.h (UEmergeCraftingRecipe).
+        File.WriteAllText(Path.Combine(GeneratedDir, "CraftingRecipe.h"),
+            "#pragma once\n" +
+            "// AUTO-GENERATED forwarding shim (see EmergeCore.Build.cs) — do not edit, do not check in.\n" +
+            "#include \"Crafting/EmergeCraftingRecipe.h\"\n" +
+            "using UCraftingRecipe = UEmergeCraftingRecipe;\n");
+
         PublicIncludePaths.Add(GeneratedDir);
     }
 }
