@@ -105,6 +105,16 @@ public class EmergeCore : ModuleRules
             "#include \"Combat/EmergeArmorItem.h\"\n" +
             "using UArmorItem = UEmergeArmorItem;\n");
 
+        // Same shim pattern for the faction-tier-multiplier acceptance spec, which includes
+        // "CombatFactionTier.h" and references "UCombatFactionTier" directly (legacy naming).
+        // Real implementation lives properly named at
+        // Public/Combat/EmergeFactionTier.h (UEmergeFactionTier).
+        File.WriteAllText(Path.Combine(GeneratedDir, "CombatFactionTier.h"),
+            "#pragma once\n" +
+            "// AUTO-GENERATED forwarding shim (see EmergeCore.Build.cs) — do not edit, do not check in.\n" +
+            "#include \"Combat/EmergeFactionTier.h\"\n" +
+            "using UCombatFactionTier = UEmergeFactionTier;\n");
+
         PublicIncludePaths.Add(GeneratedDir);
     }
 }

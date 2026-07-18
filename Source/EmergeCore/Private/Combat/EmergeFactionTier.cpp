@@ -14,3 +14,17 @@ bool UEmergeFactionTier::UsesAutomaticWeapons(int32 Tier)
 {
 	return Tier >= 1;
 }
+
+void UEmergeFactionTier::SetMaxMultiplier(float InMaxMultiplier)
+{
+	MaxMultiplier = InMaxMultiplier;
+}
+
+float UEmergeFactionTier::ApplyTierMultiplier(float BaseStat, float Multiplier) const
+{
+	if (!FMath::IsFinite(Multiplier) || Multiplier < 0.0f || Multiplier > MaxMultiplier)
+	{
+		return BaseStat;
+	}
+	return BaseStat * Multiplier;
+}
