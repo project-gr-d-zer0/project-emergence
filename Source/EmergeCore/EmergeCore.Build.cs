@@ -71,6 +71,16 @@ public class EmergeCore : ModuleRules
             "#include \"World/EmergeSafeZoneArbiter.h\"\n" +
             "using USafeZoneArbiter = UEmergeSafeZoneArbiter;\n");
 
+        // Same shim pattern for the world-depth-difficulty acceptance spec, which includes
+        // "WorldDepthDifficulty.h" and references "UWorldDepthDifficulty" directly (legacy
+        // naming). Real implementation lives properly named at
+        // Public/World/EmergeWorldDepthDifficulty.h (UEmergeWorldDepthDifficulty).
+        File.WriteAllText(Path.Combine(GeneratedDir, "WorldDepthDifficulty.h"),
+            "#pragma once\n" +
+            "// AUTO-GENERATED forwarding shim (see EmergeCore.Build.cs) — do not edit, do not check in.\n" +
+            "#include \"World/EmergeWorldDepthDifficulty.h\"\n" +
+            "using UWorldDepthDifficulty = UEmergeWorldDepthDifficulty;\n");
+
         // Same shim pattern for the armor-penetration-mitigation acceptance spec, which includes
         // "Combat/ArmorPenetrationResolver.h", "Combat/ProjectileDefinition.h", and
         // "Combat/ArmorItem.h" and references "UArmorPenetrationResolver", "UProjectileDefinition",
