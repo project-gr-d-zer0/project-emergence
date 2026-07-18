@@ -71,6 +71,30 @@ public class EmergeCore : ModuleRules
             "#include \"World/EmergeSafeZoneArbiter.h\"\n" +
             "using USafeZoneArbiter = UEmergeSafeZoneArbiter;\n");
 
+        // Same shim pattern for the armor-penetration-mitigation acceptance spec, which includes
+        // "Combat/ArmorPenetrationResolver.h", "Combat/ProjectileDefinition.h", and
+        // "Combat/ArmorItem.h" and references "UArmorPenetrationResolver", "UProjectileDefinition",
+        // and "UArmorItem" directly (legacy naming). Real implementations live properly named at
+        // Public/Combat/EmergeArmorPenetrationResolver.h, EmergeProjectileDefinition.h, and
+        // EmergeArmorItem.h.
+        string GeneratedCombatDir = Path.Combine(GeneratedDir, "Combat");
+        Directory.CreateDirectory(GeneratedCombatDir);
+        File.WriteAllText(Path.Combine(GeneratedCombatDir, "ArmorPenetrationResolver.h"),
+            "#pragma once\n" +
+            "// AUTO-GENERATED forwarding shim (see EmergeCore.Build.cs) — do not edit, do not check in.\n" +
+            "#include \"Combat/EmergeArmorPenetrationResolver.h\"\n" +
+            "using UArmorPenetrationResolver = UEmergeArmorPenetrationResolver;\n");
+        File.WriteAllText(Path.Combine(GeneratedCombatDir, "ProjectileDefinition.h"),
+            "#pragma once\n" +
+            "// AUTO-GENERATED forwarding shim (see EmergeCore.Build.cs) — do not edit, do not check in.\n" +
+            "#include \"Combat/EmergeProjectileDefinition.h\"\n" +
+            "using UProjectileDefinition = UEmergeProjectileDefinition;\n");
+        File.WriteAllText(Path.Combine(GeneratedCombatDir, "ArmorItem.h"),
+            "#pragma once\n" +
+            "// AUTO-GENERATED forwarding shim (see EmergeCore.Build.cs) — do not edit, do not check in.\n" +
+            "#include \"Combat/EmergeArmorItem.h\"\n" +
+            "using UArmorItem = UEmergeArmorItem;\n");
+
         PublicIncludePaths.Add(GeneratedDir);
     }
 }
