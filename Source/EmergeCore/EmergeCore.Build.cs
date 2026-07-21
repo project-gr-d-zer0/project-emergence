@@ -1,5 +1,6 @@
 using System.IO;
 using UnrealBuildTool;
+
 public class EmergeCore : ModuleRules
 {
     public EmergeCore(ReadOnlyTargetRules Target) : base(Target)
