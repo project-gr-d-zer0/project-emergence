@@ -10,8 +10,8 @@ public class EmergeCore : ModuleRules
         PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "EnhancedInput", "NavigationSystem", "AIModule", "GameplayTasks" });
         PrivateDependencyModuleNames.AddRange(new string[] { });
 
-        // Short-name include roots. Compat/ holds committed forwarding shims (formerly Build.cs codegen
-        // into Intermediate/ — removed 2026-07-22: unsupported, non-portable, broke cold/fresh builds).
+        // Committed forwarding shims live under Public/Compat/{root,World,Combat} (formerly Build.cs codegen
+        // into Intermediate/ — removed 2026-07-22: non-portable, broke cold/fresh/cook builds).
         PublicIncludePaths.AddRange(new string[]
         {
             Path.Combine(ModuleDirectory, "Public", "Items"),
@@ -24,6 +24,8 @@ public class EmergeCore : ModuleRules
             Path.Combine(ModuleDirectory, "Public", "Crafting"),
             Path.Combine(ModuleDirectory, "Public", "Shell"),
             Path.Combine(ModuleDirectory, "Public", "Compat"),
+            Path.Combine(ModuleDirectory, "Public", "Compat", "World"),
+            Path.Combine(ModuleDirectory, "Public", "Compat", "Combat"),
         });
     }
 }

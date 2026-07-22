@@ -1,5 +1,4 @@
 #pragma once
-// Forwarding shim (committed real header; formerly synthesized by EmergeCore.Build.cs codegen,
-// which wrote into Intermediate/ and broke on any cold/fresh build — see 2026-07-22 audit).
+// Committed forwarding shim (was Build.cs codegen into Intermediate/ — removed 2026-07-22, non-portable).
 #include "Crafting/EmergeCraftingRecipe.h"
 using UCraftingRecipe = UEmergeCraftingRecipe;

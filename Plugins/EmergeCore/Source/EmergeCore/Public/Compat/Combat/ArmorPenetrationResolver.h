@@ -1,4 +1,4 @@
 #pragma once
 // Committed forwarding shim (was Build.cs codegen into Intermediate/ — removed 2026-07-22, non-portable).
-#include "Combat/EmergeBallisticAccuracyResolver.h"
-using UBallisticAccuracyResolver = UEmergeBallisticAccuracyResolver;
+#include "Combat/EmergeArmorPenetrationResolver.h"
+using UArmorPenetrationResolver = UEmergeArmorPenetrationResolver;
