@@ -11,7 +11,7 @@ class AEmergeEnemyController;
 // navmesh readiness, the shared influence-grid belief, NPC glitch-oracles (stuck-while-pathing,
 // below-kill-Z) and frame timing. Read via AEmergeCharacter::SenseWorld (proven RC path).
 UCLASS()
-class EMERGECORE_API UEmergeWorldSense : public UTickableWorldSubsystem
+class EMERGECOREALS_API UEmergeWorldSense : public UTickableWorldSubsystem
 {
 	GENERATED_BODY()
 public:

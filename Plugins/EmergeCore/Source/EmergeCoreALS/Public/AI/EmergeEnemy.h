@@ -14,7 +14,7 @@ enum class EAlsMantlingType : uint8;
 // vault=flip, mantle-clip=sandbox dependency flood, hurdle=still not a mantle — all measured).
 // Zombie speeds live in its own movement settings, fed from the Zombie*Speed properties below.
 UCLASS()
-class EMERGECORE_API AEmergeEnemy : public AAlsCharacter
+class EMERGECOREALS_API AEmergeEnemy : public AAlsCharacter
 {
 	GENERATED_BODY()
 public:

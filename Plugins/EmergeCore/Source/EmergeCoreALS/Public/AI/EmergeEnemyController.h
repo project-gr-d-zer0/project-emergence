@@ -13,7 +13,7 @@ class UEmergeInfluenceGrid;
 // FAIStimulus.Strength is a broken placeholder). The graduated "slow identify" awareness comes from the
 // nav-awareness kernel, driving a small FSM: Unaware->Suspicious->Investigating->Chasing->Searching->give-up.
 UCLASS()
-class EMERGECORE_API AEmergeEnemyController : public AAIController
+class EMERGECOREALS_API AEmergeEnemyController : public AAIController
 {
 	GENERATED_BODY()
 public:

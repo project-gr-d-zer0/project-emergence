@@ -3,15 +3,27 @@
 	"Version": 1,
 	"VersionName": "1.0",
 	"FriendlyName": "EmergeCore",
-	"Description": "Emergence gameplay mechanics kernel (survival, combat, shell, sensor, world) — shared runtime plugin consumed by ProjectEmergence and the ZSK game base.",
+	"Description": "Emergence gameplay mechanics kernel (survival, combat, shell, sensor, world) \u2014 shared runtime plugin consumed by ProjectEmergence and the ZSK game base.",
 	"Category": "Gameplay",
 	"CanContainContent": false,
 	"Installed": false,
 	"EnabledByDefault": true,
 	"Modules": [
-		{ "Name": "EmergeCore", "Type": "Runtime", "LoadingPhase": "Default" }
+		{
+			"Name": "EmergeCore",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "EmergeCoreALS",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
 	],
 	"Plugins": [
-		{ "Name": "ALS", "Enabled": true }
+		{
+			"Name": "ALS",
+			"Enabled": true
+		}
 	]
 }

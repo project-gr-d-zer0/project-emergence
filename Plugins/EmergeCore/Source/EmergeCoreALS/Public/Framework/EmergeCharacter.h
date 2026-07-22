@@ -3,7 +3,7 @@
 #include "AlsCharacterExample.h"
 #include "EmergeCharacter.generated.h"
 
-EMERGECORE_API DECLARE_LOG_CATEGORY_EXTERN(LogEmergeTelemetry, Log, All);
+EMERGECOREALS_API DECLARE_LOG_CATEGORY_EXTERN(LogEmergeTelemetry, Log, All);
 
 enum class EAlsMantlingType : uint8;
 class UAlsMantlingSettings;
@@ -22,7 +22,7 @@ class UCameraComponent;
 // (move/look/sprint/crouch/jump/aim/mantle/ragdoll) + ALS camera. Adds the full survival runtime suite
 // and a minimal stagger->ragdoll bridge (knockdown = ragdoll; bleeding drains vitals).
 UCLASS()
-class EMERGECORE_API AEmergeCharacter : public AAlsCharacterExample
+class EMERGECOREALS_API AEmergeCharacter : public AAlsCharacterExample
 {
 	GENERATED_BODY()
 public:
