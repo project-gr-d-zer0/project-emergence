@@ -7,6 +7,6 @@ public class ProjectEmergenceTarget : TargetRules
         DefaultBuildSettings = BuildSettingsVersion.V7;
         bOverrideBuildEnvironment = true;
         IncludeOrderVersion = EngineIncludeOrderVersion.Latest;
-        ExtraModuleNames.AddRange(new string[] { "ProjectEmergence", "EmergeCore" });
+        ExtraModuleNames.AddRange(new string[] { "ProjectEmergence" });
     }
 }

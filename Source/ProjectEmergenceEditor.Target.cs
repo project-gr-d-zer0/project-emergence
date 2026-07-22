@@ -13,6 +13,6 @@ public class ProjectEmergenceEditorTarget : TargetRules
 		{
 			WindowsPlatform.bAllowRadLinker = true;
 		}
-        ExtraModuleNames.AddRange(new string[] { "ProjectEmergence", "EmergeCore" });
+        ExtraModuleNames.AddRange(new string[] { "ProjectEmergence" });
     }
 }
