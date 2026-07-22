@@ -83,5 +83,7 @@ public class EmergeCore : ModuleRules
             "using UCombatFactionTier = UEmergeFactionTier;\n");
 
         PublicIncludePaths.Add(GeneratedDir);
+        PublicIncludePaths.Add(GeneratedWorldDir);
+        PublicIncludePaths.Add(GeneratedCombatDir);
     }
 }
